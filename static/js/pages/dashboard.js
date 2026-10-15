@@ -651,30 +651,81 @@
       if (saved.brief) kids.push(h("p", "brief-text", saved.brief.length > 280 ? saved.brief.slice(0, 280) + "…" : saved.brief));
       if (saved.files.length) kids.push(h("ul", "brief-files", saved.files.map((f) => h("li", "brief-file", [icon("clip", 12), f.name, h("span", "faint", kb(f.size))]))));
       if (has && r.source === "github") kids.push(h("div", "brief-actions", [h("span", "brief-hint",
-        "Keep it with the code: SecureFix writes it to BRIEF.md on " + (r.default_branch || "main") + "."), h("span", "spacer"), pushButton()]));
+        "Keep it with the code: the AI turns it into a clear BRIEF.md for " + (r.default_branch || "main") + " and you review it first."),
+        h("span", "spacer"), h("span", "brief-push", pushButton())]));
       box.replaceChildren(...kids);
     }
 
-    // Write the brief into the repository as BRIEF.md (a commit on the default branch), after a confirmation.
+    // BRIEF.md: the AI rewrites the paragraph and the attached files into a clean brief, the owner reviews and edits
+    // it, and Push commits it to the default branch and opens it on GitHub.
     function pushButton() {
       const btn = h("button", "btn btn-secondary btn-sm", [icon("up", 14), "Push BRIEF.md to GitHub"]);
       btn.type = "button";
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
-        if (!window.confirm(`Commit BRIEF.md with this brief to ${r.full_name} on ${r.default_branch || "main"}?`)) return;
         btn.disabled = true;
+        btn.replaceChildren(h("span", "spinner"), "Writing BRIEF.md…");
         try {
-          const out = await SF.api(`/api/fleet/repos/${r.id}/brief/github`, { method: "POST" });
-          SF.toast(out.unchanged ? "BRIEF.md on GitHub already matches this brief." : "BRIEF.md pushed to GitHub.");
-          if (out.url) {
-            const a = h("a", "btn btn-ghost btn-sm", ["View BRIEF.md", icon("external", 12)]);
-            a.href = out.url; a.target = "_blank"; a.rel = "noopener noreferrer";
-            a.addEventListener("click", (ev) => ev.stopPropagation());
-            btn.replaceWith(a);
-          }
-        } catch (err) { SF.toast(err.message); btn.disabled = false; }
+          const draft = await SF.api(`/api/fleet/repos/${r.id}/brief/draft`, { method: "POST" });
+          preview(draft);
+        } catch (err) {
+          SF.toast(err.message);
+          btn.disabled = false;
+          btn.replaceChildren(icon("up", 14), "Push BRIEF.md to GitHub");
+        }
       });
       return btn;
+    }
+
+    function preview(draft) {
+      const ta = h("textarea", "input brief-md");
+      ta.value = draft.body;
+      ta.spellcheck = false;
+      ta.setAttribute("aria-label", "BRIEF.md to push");
+      ta.addEventListener("keydown", (e) => e.stopPropagation());
+      const push = h("button", "btn btn-primary btn-sm", [icon("up", 14), "Push to GitHub"]);
+      push.type = "button";
+      const back = h("button", "btn btn-ghost btn-sm", "Cancel");
+      back.type = "button";
+      back.addEventListener("click", (e) => { e.stopPropagation(); summary(); });
+      push.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!window.confirm(`Commit ${draft.path} to ${r.full_name} on ${draft.branch}?`)) return;
+        push.disabled = true;
+        // Open the tab now, while the click still counts as the user's action (browsers block pop-ups opened
+        // after a wait), and send it to the file on GitHub once the push is done.
+        const tab = window.open("", "_blank");
+        if (tab) tab.document.write("<p style=\"font:15px system-ui;margin:2rem\">Pushing BRIEF.md to GitHub…</p>");
+        try {
+          const out = await SF.api(`/api/fleet/repos/${r.id}/brief/github`, { method: "POST", body: { body: ta.value } });
+          SF.toast(out.unchanged ? "BRIEF.md on GitHub already says this. Opening it." : "BRIEF.md pushed to GitHub. Opening it.");
+          if (tab && out.url) { tab.opener = null; tab.location.replace(out.url); } else if (tab) tab.close();
+          summary();
+          if (out.url) {
+            const a = h("a", "btn btn-ghost btn-sm", ["View BRIEF.md on GitHub", icon("external", 12)]);
+            a.href = out.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+            a.addEventListener("click", (ev) => ev.stopPropagation());
+            const old = box.querySelector(".brief-push");
+            if (old) old.replaceWith(a);
+          }
+        } catch (err) {
+          if (tab) tab.close();
+          if (/sign in with github/i.test(err.message)) {  // not connected to GitHub: go and sign in, then come back
+            location.href = "/auth/login?next=" + encodeURIComponent("/dashboard?repo=" + r.id);
+            return;
+          }
+          SF.toast(err.message);
+          push.disabled = false;
+        }
+      });
+      box.replaceChildren(
+        h("div", "brief-head", [h("strong", null, draft.path + " to push"),
+          h("span", "brief-hint", draft.ai ? "Written by the AI from your brief and files. Check and edit it before pushing."
+            : "The AI was not available, so this is your brief laid out as it is. Edit it before pushing.")]),
+        ta,
+        h("div", "brief-actions", [h("span", "brief-hint", `Commits to ${r.full_name} on ${draft.branch}, then opens it on GitHub.`),
+          h("span", "spacer"), back, push]));
+      ta.focus();
     }
 
     function form() {

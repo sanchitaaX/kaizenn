@@ -58,6 +58,10 @@ class BriefIn(BaseModel):
 MAX_BRIEF_FILES = 5
 
 
+class PushBriefIn(BaseModel):
+    body: str = Field("", max_length=30_000)   # the reviewed BRIEF.md text; empty = lay the notes out as they are
+
+
 class CheckIn(BaseModel):
     repos: list[str] = Field(..., min_length=1, max_length=check.MAX_REPOS)
 
@@ -232,10 +236,33 @@ def save_brief(repo_id: int, body: BriefIn, user: dict = Depends(require_user)):
     return store.set_brief(repo_id, ws, body.brief.strip(), body.keep_files, files)
 
 
+def _brief_repo(repo_id: int, user: dict) -> dict:
+    found = store.get_repo(repo_id, _workspaces(user))
+    if not found:
+        raise HTTPException(status_code=404, detail="That repository was not found.")
+    saved = store.get_brief(repo_id)
+    if not saved["brief"].strip() and not saved["files"]:
+        raise HTTPException(status_code=422, detail="Write the brief first, then push it.")
+    return found["repo"]
+
+
+@router.post("/repos/{repo_id}/brief/draft")
+def draft_brief(repo_id: int, user: dict = Depends(require_user)):
+    """BRIEF.md written by the AI from the paragraph and the attached files: simplified into fixed sections and
+    only from facts in the notes. Returned for review and editing; nothing is pushed here."""
+    from app.fleet import briefdoc
+
+    r = _brief_repo(repo_id, user)
+    saved = store.get_brief(repo_id)
+    doc, ai = briefdoc.simplify(r["full_name"], saved["brief"], store.brief_files_full(repo_id))
+    return {"body": briefdoc.body_of(doc), "ai": ai, "path": briefdoc.PATH, "branch": r.get("default_branch") or "main"}
+
+
 @router.post("/repos/{repo_id}/brief/github")
-def push_brief(repo_id: int, user: dict = Depends(require_user)):
+def push_brief(repo_id: int, payload: PushBriefIn | None = None, user: dict = Depends(require_user)):
     """Write the project brief into the repository as BRIEF.md on its default branch, so it is kept with the code.
-    Only a BRIEF.md that SecureFix wrote is replaced; another file with that name is left alone."""
+    `body` is the reviewed draft; without it the notes are laid out as they are. Only a BRIEF.md that SecureFix
+    wrote is replaced; another file with that name is left alone."""
     from app import github
     from app.fleet import briefdoc
 
@@ -251,7 +278,8 @@ def push_brief(repo_id: int, user: dict = Depends(require_user)):
     saved = store.get_brief(repo_id)
     if not saved["brief"].strip() and not saved["files"]:
         raise HTTPException(status_code=422, detail="Write the brief first, then push it.")
-    doc = briefdoc.render(r["full_name"], saved["brief"], store.brief_files_full(repo_id))
+    doc = briefdoc.compose(r["full_name"], payload.body) if payload and payload.body.strip() else \
+        briefdoc.render(r["full_name"], saved["brief"], store.brief_files_full(repo_id))
     branch = r.get("default_branch") or "main"
     try:
         current = github.get_file(token, r["full_name"], briefdoc.PATH, branch)
