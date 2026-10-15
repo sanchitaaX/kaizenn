@@ -100,6 +100,14 @@ CREATE TABLE IF NOT EXISTS fleet_settings (
     last_watch_at    TEXT,
     last_watch_note  TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS fleet_brief_files (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo_id     INTEGER NOT NULL,
+    name        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS fleet_brief_files_by_repo ON fleet_brief_files (repo_id);
 """
 
 DEFAULT_MIN_SCORE = 80
@@ -291,21 +299,64 @@ def get_repo(repo_id: int, workspaces: list[str]) -> dict | None:
 
 
 
-def set_brief(repo_id: int, workspaces: list[str], brief: str) -> bool:
-    """Save the owner's project brief for a repository (what it does, what must keep working)."""
+BRIEF_CONTEXT_CHARS = 3500  # what the model gets: the paragraph first, then the start of each attached file
+
+
+def set_brief(repo_id: int, workspaces: list[str], brief: str, keep_files: list[int] | None = None,
+              add_files: list[dict] | None = None) -> dict | None:
+    """Save the owner's project brief for a repository: a paragraph plus optional text files (docs, notes,
+    API descriptions). keep_files lists the ids of earlier files to keep (None keeps them all). Returns the
+    saved brief, or None when the repository is not in these workspaces."""
     where, args = _where(workspaces)
     with _tx() as conn:
         cur = conn.execute(f"UPDATE fleet_repos SET brief = ? WHERE id = ? AND {where}", [brief, repo_id, *args])
-        return cur.rowcount > 0
+        if not cur.rowcount:
+            return None
+        if keep_files is not None:  # an empty list removes every earlier file ("id NOT IN (NULL)" would keep them)
+            marks = ",".join("?" * len(keep_files))
+            conn.execute("DELETE FROM fleet_brief_files WHERE repo_id = ?" + (f" AND id NOT IN ({marks})" if marks else ""),
+                         [repo_id, *keep_files])
+        conn.executemany("INSERT INTO fleet_brief_files (repo_id, name, content, created_at) VALUES (?, ?, ?, ?)",
+                         [(repo_id, f["name"], f["text"], db.iso(db.now())) for f in (add_files or [])])
+    return get_brief(repo_id)
+
+
+def brief_files_full(repo_id: int) -> list[dict]:
+    """The attached files with their text ([{name, content}]), oldest first."""
+    with _tx() as conn:
+        return [dict(r) for r in conn.execute("SELECT name, content FROM fleet_brief_files WHERE repo_id = ? ORDER BY id",
+                                              (repo_id,))]
+
+
+def get_brief(repo_id: int) -> dict:
+    """{brief, files: [{id, name, size}]} for one repository (no access check: callers check the repository)."""
+    with _tx() as conn:
+        row = conn.execute("SELECT brief FROM fleet_repos WHERE id = ?", (repo_id,)).fetchone()
+        files = conn.execute("SELECT id, name, length(content) AS size FROM fleet_brief_files WHERE repo_id = ? "
+                             "ORDER BY id", (repo_id,)).fetchall()
+    return {"brief": row["brief"] if row else "", "files": [dict(f) for f in files]}
 
 
 def brief_for(workspaces: list[str], full_name: str) -> str:
-    """The project brief saved for a repository by name, or ''."""
+    """Everything the owner told SecureFix about a repository, sized for a prompt: the paragraph, then the start
+    of each attached file. '' when there is none."""
     where, args = _where(workspaces)
     with _tx() as conn:
-        row = conn.execute(f"SELECT brief FROM fleet_repos WHERE full_name = ? COLLATE NOCASE AND {where} "
-                           "AND brief != '' LIMIT 1", [full_name, *args]).fetchone()
-    return row["brief"] if row else ""
+        row = conn.execute(f"SELECT id, brief FROM fleet_repos WHERE full_name = ? COLLATE NOCASE AND {where} "
+                           "ORDER BY brief = '' LIMIT 1", [full_name, *args]).fetchone()
+        if not row:
+            return ""
+        files = conn.execute("SELECT name, content FROM fleet_brief_files WHERE repo_id = ? ORDER BY id",
+                             (row["id"],)).fetchall()
+    parts = [row["brief"].strip()] if row["brief"].strip() else []
+    room = BRIEF_CONTEXT_CHARS - sum(len(x) for x in parts)
+    for f in files:
+        if room < 200:
+            break
+        chunk = f["content"].strip()[:max(0, min(room - 60, 1500))]
+        parts.append(f"Attached file {f['name']}:\n{chunk}")
+        room -= len(parts[-1])
+    return "\n\n".join(parts)[:BRIEF_CONTEXT_CHARS]
 
 
 def open_vulns(repo_id: int) -> list[dict]:

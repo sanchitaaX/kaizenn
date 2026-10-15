@@ -20,7 +20,7 @@ from app import db
 from app.agent import analyze, discover, evidence, fast, model, patcher, rules, sectest, testrun, verify, workspace
 from app.agent.sandbox import Recorder, version
 from app.config import settings
-from app.fleet import learn
+from app.fleet import briefdoc, learn
 
 log = logging.getLogger(__name__)
 
@@ -198,6 +198,8 @@ def execute(run_id: int, token: str | None, target: dict | None = None, local: P
         run.step("intake", "running", "Downloading the repository")
         ws = workspace.from_folder(local, repo=row["repo"]) if local else \
             workspace.from_github(token, row["repo"], row["ref"])
+        if not brief and ws.exists(briefdoc.PATH):  # a brief pushed to the repository travels with the code
+            brief = briefdoc.to_brief(ws.read(briefdoc.PATH))[:3500]
         ws.brief = brief
         res["brief"] = brief
         langs = ws.languages()

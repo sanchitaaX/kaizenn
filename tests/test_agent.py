@@ -525,3 +525,21 @@ def test_runs_cut_off_by_a_restart_are_closed_at_startup():
     controller.close_interrupted()
     run = controller.get(run_id)
     assert run["status"] == "error" and "restarted" in run["state"]["result"]["error"]
+
+
+def test_agent_reads_a_brief_md_from_the_repository(tmp_path, monkeypatch):
+    from app.fleet import briefdoc
+
+    repo = tmp_path / "shop"
+    shutil.copytree(DEMO_SHOP, repo, ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"))
+    (repo / "BRIEF.md").write_text(briefdoc.render("me/shop", "Corner shop; stock lookups must keep working.", []),
+                                   encoding="utf-8")
+    script = FastScript()
+    prompts = []
+    original = script.__call__
+    monkeypatch.setattr(settings, "agent_mode", "fast")
+    monkeypatch.setattr(model, "ask", lambda stage, task, prompt, log, **kw: prompts.append(prompt) or original(stage, task, prompt, log, **kw))
+    run_id = controller.create("dev", "me/shop", None, None)
+    controller.execute(run_id, None, local=repo)
+    res = controller.get(run_id)["state"]["result"]
+    assert res["brief"].startswith("Corner shop") and all("stock lookups must keep working" in p for p in prompts)

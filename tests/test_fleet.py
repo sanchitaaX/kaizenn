@@ -497,7 +497,7 @@ def test_project_brief_is_saved_and_shown(demo):
     assert r.status_code == 200 and r.json()["brief"] == "Billing API; invoices must stay PDF."
     assert demo.get(f"/api/fleet/repos/{repo['id']}").json()["repo"]["brief"] == "Billing API; invoices must stay PDF."
     assert demo.put("/api/fleet/repos/999999/brief", json={"brief": "x"}).status_code == 404
-    assert demo.put(f"/api/fleet/repos/{repo['id']}/brief", json={"brief": "x" * 2001}).status_code == 422
+    assert demo.put(f"/api/fleet/repos/{repo['id']}/brief", json={"brief": "x" * 4001}).status_code == 422
 
 
 def test_fix_all_saves_prepared_fixes_for_one_demo_repo(demo):
@@ -511,3 +511,97 @@ def test_fix_all_saves_prepared_fixes_for_one_demo_repo(demo):
     again = demo.post(f"/api/fleet/repos/{first['id']}/fix-all").json()
     assert again["fixed"] == 0 and "already has a fix" in again["message"]
     assert demo.post("/api/fleet/repos/999999/fix-all").status_code == 404
+
+
+def test_project_brief_takes_a_paragraph_and_files(demo):
+    repo = demo.get("/api/fleet/repos?source=demo&min_score=0").json()["items"][0]
+    url = f"/api/fleet/repos/{repo['id']}/brief"
+    out = demo.put(url, json={"brief": "Timetable API; teachers sign in with Google.",
+                              "add_files": [{"name": "docs/ROLES.md", "text": "Students see only their own class."},
+                                            {"name": "api.yaml", "text": "paths: {/export: {get: {}}}"}]}).json()
+    assert out["brief"].startswith("Timetable API") and [f["name"] for f in out["files"]] == ["ROLES.md", "api.yaml"]
+    detail = demo.get(f"/api/fleet/repos/{repo['id']}").json()
+    assert [f["name"] for f in detail["brief_files"]] == ["ROLES.md", "api.yaml"]
+    context = store.brief_for(["demo"], repo["full_name"])
+    assert "Timetable API" in context and "Attached file ROLES.md" in context and "own class" in context
+    keep = [out["files"][1]["id"]]  # remove ROLES.md, keep api.yaml
+    out = demo.put(url, json={"brief": "", "keep_files": keep}).json()
+    assert [f["name"] for f in out["files"]] == ["api.yaml"] and out["brief"] == ""
+    too_many = [{"name": f"{i}.md", "text": "x"} for i in range(5)]
+    assert demo.put(url, json={"brief": "x", "add_files": too_many}).status_code == 422  # 1 kept + 5 new
+    assert demo.put(url, json={"brief": "x", "add_files": [{"name": "a.bin", "text": "a\x00b"}]}).status_code == 422
+    assert demo.put("/api/fleet/repos/999999/brief", json={"brief": "x"}).status_code == 404
+    cleared = demo.put(url, json={"brief": "", "keep_files": []}).json()  # removing the last file clears them all
+    assert cleared == {"brief": "", "files": []} and store.brief_for(["demo"], repo["full_name"]) == ""
+
+
+def test_repository_briefs_accept_code_files_but_the_chat_brief_does_not(demo):
+    files = {"file": ("models.py", b"class Mark: pass\n", "text/x-python")}
+    assert demo.post("/api/brief/extract?for_repo=1", files=files).json()["text"] == "class Mark: pass"
+    assert demo.post("/api/brief/extract", files=files).status_code == 400
+
+
+# --------------------------------------------------------------------------- BRIEF.md
+
+
+def test_brief_md_round_trips_into_an_agent_brief():
+    from app.fleet import briefdoc
+
+    doc = briefdoc.render("me/shop", "A shop API; only admins export.", [{"name": "roles.md", "content": "Admins export."},
+                                                                         {"name": "api.py", "content": "def export(): pass"}])
+    assert doc.startswith(briefdoc.MARKER) and "# Project brief: me/shop" in doc and "```python" in doc
+    brief = briefdoc.to_brief(doc)
+    assert "only admins export" in brief and "Admins export." in brief and briefdoc.MARKER not in brief
+    assert briefdoc.to_brief("# Our own brief\nnot written by SecureFix") == ""
+
+
+@pytest.fixture
+def octo(monkeypatch):
+    """A signed-in GitHub account with one repository on the dashboard."""
+    from app import auth
+
+    db.upsert_github_user({"login": "octo", "id": 7, "name": "Octo"})
+    db.save_token("octo", "gho_test", "repo")
+    monkeypatch.setattr(auth, "current_user", lambda request: db.get_user("octo"))
+    repo_id = store.save_github_repo("octo", {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop",
+                                              "default_branch": "main"}, [], "scanned")
+    with TestClient(app, base_url="http://testserver") as c:
+        yield c, repo_id
+
+
+def test_push_brief_md_writes_and_updates_only_our_file(octo, monkeypatch):
+    from app import github
+    from app.fleet import briefdoc
+
+    client, repo_id = octo
+    files: dict[str, tuple[str, str]] = {}
+    pushed = []
+    monkeypatch.setattr(github, "get_file", lambda token, name, path, ref: files.get(path))
+
+    def put(token, name, path, content, branch, message, blob_sha=None):
+        pushed.append((name, path, branch, message, blob_sha))
+        files[path] = (content, f"sha{len(pushed)}")
+        return {"sha": "c1", "url": "https://github.com/octo/shop/commit/c1"}
+
+    monkeypatch.setattr(github, "put_file", put)
+    url = f"/api/fleet/repos/{repo_id}/brief/github"
+    assert client.post(url).status_code == 422  # nothing to push yet
+    client.put(f"/api/fleet/repos/{repo_id}/brief", json={"brief": "Shop API; admins only export.",
+                                                          "add_files": [{"name": "roles.md", "text": "Admins export."}]})
+    out = client.post(url).json()
+    assert out["url"] == "https://github.com/octo/shop/blob/main/BRIEF.md" and not out["unchanged"]
+    assert pushed[0][:4] == ("octo/shop", "BRIEF.md", "main", "Add the project brief (BRIEF.md)") and pushed[0][4] is None
+    assert briefdoc.to_brief(files["BRIEF.md"][0]).startswith("Shop API")
+    assert client.post(url).json()["unchanged"] is True and len(pushed) == 1  # same text: no new commit
+    client.put(f"/api/fleet/repos/{repo_id}/brief", json={"brief": "Shop API v2."})
+    client.post(url)
+    assert pushed[1][3] == "Update the project brief (BRIEF.md)" and pushed[1][4] == "sha1"
+    files["BRIEF.md"] = ("# The team's own brief", "x")
+    r = client.post(url)
+    assert r.status_code == 409 and "own BRIEF.md" in r.json()["detail"] and len(pushed) == 2
+
+
+def test_push_brief_md_is_not_offered_for_demo_repositories(demo):
+    repo = demo.get("/api/fleet/repos?source=demo&min_score=0").json()["items"][0]
+    demo.put(f"/api/fleet/repos/{repo['id']}/brief", json={"brief": "x"})
+    assert demo.post(f"/api/fleet/repos/{repo['id']}/brief/github").status_code == 409

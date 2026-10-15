@@ -435,3 +435,18 @@ dialog::backdrop { background: rgba(43, 48, 59, 0.38); }
 .learn-res-title { font-weight: 600; }
 .learn-res-src { color: var(--ink-soft); }
 .learn-res:hover .learn-res-title { text-decoration: underline; }
+
+/* Project brief: summary, form and attached files */
+.brief-head { align-items: center; }
+.brief-head > div { min-width: 0; }
+.brief-text { font-size: var(--fs-13); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.brief-files { display: flex; flex-wrap: wrap; gap: 6px; }
+.brief-file { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px 3px 10px; border-radius: var(--r-pill);
+  border: 1px solid var(--hairline); background: var(--surface); font-size: var(--fs-12); max-width: 100%; }
+.brief-file .faint { margin-left: 2px; }
+.brief-file-x { display: inline-grid; place-items: center; width: 18px; height: 18px; border: 0; border-radius: 50%;
+  background: transparent; color: var(--ink-soft); cursor: pointer; }
+.brief-file-x:hover { background: var(--accent-tint); color: var(--ink); }
+.brief-actions .spacer { flex: 1; }
+.brief textarea { min-height: 110px; }
+.detail > .brief:first-child, .drawer-body > .brief:first-child { margin-top: 0; }

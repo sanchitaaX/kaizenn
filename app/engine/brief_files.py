@@ -18,8 +18,12 @@ MAX_TEXT_CHARS = 20000          # same cap as the brief typed in the chat
 MAX_PDF_PAGES = 60
 MAX_UNZIPPED_BYTES = 25 * 1024 * 1024   # refuse "zip bombs" disguised as .docx
 ALLOWED = (".txt", ".md", ".pdf", ".docx")
+# A repository brief may also carry code and config the owner wants the agent to read (still only as text).
+REPO_ALLOWED = ALLOWED + (".rst", ".json", ".yaml", ".yml", ".toml", ".ini", ".csv", ".sql", ".py", ".js", ".ts",
+                          ".tsx", ".jsx", ".html")
 
 WRONG_TYPE = "Attach a .txt, .md, .pdf or .docx file."
+REPO_WRONG_TYPE = "Attach a text, Markdown, PDF, Word, code or config file (.txt .md .pdf .docx .json .yaml .py .js ...)."
 TOO_BIG = "That file is larger than 2 MB. Attach a smaller one or paste the text instead."
 EMPTY = "I could not find any text in that file."
 
@@ -92,12 +96,12 @@ def _from_docx(data: bytes) -> str:
         raise BriefFileError("I could not read that document. Paste the text instead.")
 
 
-def extract_text(filename: str, data: bytes) -> dict:
-    """Returns {filename, text}. Raises BriefFileError with a plain message."""
+def extract_text(filename: str, data: bytes, for_repo: bool = False) -> dict:
+    """Returns {filename, text}. Raises BriefFileError with a plain message. for_repo also accepts code and config."""
     name = clean_filename(filename)
     ext = extension(name)
-    if ext not in ALLOWED:
-        raise BriefFileError(WRONG_TYPE)
+    if ext not in (REPO_ALLOWED if for_repo else ALLOWED):
+        raise BriefFileError(REPO_WRONG_TYPE if for_repo else WRONG_TYPE)
     if len(data) > MAX_BYTES:
         raise BriefFileError(TOO_BIG, status=413)
     if ext == ".pdf":

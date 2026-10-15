@@ -44,8 +44,18 @@ class SettingsIn(BaseModel):
     auto_scan: bool | None = None
 
 
+class BriefFileIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    text: str = Field(..., max_length=200_000)
+
+
 class BriefIn(BaseModel):
-    brief: str = Field("", max_length=2000)
+    brief: str = Field("", max_length=4000)
+    keep_files: list[int] | None = Field(None, max_length=20)  # earlier attachments to keep (None keeps all)
+    add_files: list[BriefFileIn] = Field(default_factory=list, max_length=5)
+
+
+MAX_BRIEF_FILES = 5
 
 
 class CheckIn(BaseModel):
@@ -199,16 +209,66 @@ def repo_detail(repo_id: int, user: dict = Depends(require_user)):
         raise HTTPException(status_code=404, detail="That repository was not found.")
     for v in found["vulns"]:
         v["plain"] = catalog.info(v["type"])["plain"]
+    found["brief_files"] = store.get_brief(repo_id)["files"]
     return found
 
 
 @router.put("/repos/{repo_id}/brief")
 def save_brief(repo_id: int, body: BriefIn, user: dict = Depends(require_user)):
-    """The owner's project brief: what the repository does and what must keep working. Sent with every fix."""
-    brief = body.brief.strip()
-    if not store.set_brief(repo_id, _workspaces(user), brief):
+    """The owner's project brief: a paragraph about what the repository does and what must keep working, plus
+    optional text files (design notes, API docs, README). Sent with every fix and agent run as context."""
+    ws = _workspaces(user)
+    if not store.get_repo(repo_id, ws):
         raise HTTPException(status_code=404, detail="That repository was not found.")
-    return {"brief": brief}
+    current = store.get_brief(repo_id)["files"]
+    kept = len(current) if body.keep_files is None else len({f["id"] for f in current} & set(body.keep_files))
+    if kept + len(body.add_files) > MAX_BRIEF_FILES:
+        raise HTTPException(status_code=422, detail=f"Attach at most {MAX_BRIEF_FILES} files to a brief.")
+    files = []
+    for f in body.add_files:
+        if "\x00" in f.text:
+            raise HTTPException(status_code=422, detail=f"{f.name} is not a text file. Attach text, Markdown or code.")
+        files.append({"name": f.name.replace("\\", "/").rsplit("/", 1)[-1][:120], "text": f.text})
+    return store.set_brief(repo_id, ws, body.brief.strip(), body.keep_files, files)
+
+
+@router.post("/repos/{repo_id}/brief/github")
+def push_brief(repo_id: int, user: dict = Depends(require_user)):
+    """Write the project brief into the repository as BRIEF.md on its default branch, so it is kept with the code.
+    Only a BRIEF.md that SecureFix wrote is replaced; another file with that name is left alone."""
+    from app import github
+    from app.fleet import briefdoc
+
+    found = store.get_repo(repo_id, _workspaces(user))
+    if not found:
+        raise HTTPException(status_code=404, detail="That repository was not found.")
+    r = found["repo"]
+    if r["source"] != "github":
+        raise HTTPException(status_code=409, detail="Demo repositories are not on GitHub, so there is nowhere to push BRIEF.md.")
+    token = user_token(user)
+    if not token:
+        raise HTTPException(status_code=403, detail="Sign in with GitHub to push BRIEF.md.")
+    saved = store.get_brief(repo_id)
+    if not saved["brief"].strip() and not saved["files"]:
+        raise HTTPException(status_code=422, detail="Write the brief first, then push it.")
+    doc = briefdoc.render(r["full_name"], saved["brief"], store.brief_files_full(repo_id))
+    branch = r.get("default_branch") or "main"
+    try:
+        current = github.get_file(token, r["full_name"], briefdoc.PATH, branch)
+        if current and not briefdoc.is_ours(current[0]):
+            raise HTTPException(status_code=409, detail="This repository already has its own BRIEF.md, so SecureFix left it "
+                                                        "alone. Rename it, or add the brief to it by hand.")
+        if current and current[0] == doc:
+            return {"path": briefdoc.PATH, "branch": branch, "unchanged": True,
+                    "url": f"{r['html_url']}/blob/{branch}/{briefdoc.PATH}" if r.get("html_url") else ""}
+        commit = github.put_file(token, r["full_name"], briefdoc.PATH, doc, branch,
+                                 ("Update" if current else "Add") + " the project brief (BRIEF.md)", current[1] if current else None)
+    except github.GitHubError as exc:
+        status = 403 if exc.status_code in (403, 404) else 502
+        raise HTTPException(status_code=status, detail=f"GitHub refused the change ({exc}). Check that this account can "
+                                                       "push to the repository.")
+    return {"path": briefdoc.PATH, "branch": branch, "unchanged": False, "commit": commit,
+            "url": f"{r['html_url']}/blob/{branch}/{briefdoc.PATH}" if r.get("html_url") else commit.get("url", "")}
 
 
 @router.post("/repos/{repo_id}/fix-all")
@@ -244,7 +304,7 @@ def fix_repo(repo_id: int, user: dict = Depends(require_user)):
                  if x["status"] == "running" and x["repo"].lower() == r["full_name"].lower()), None)
     if busy:
         return {"fixed": 0, "run": busy["id"], "message": "The SecureFix agent is already fixing this repository."}
-    run_id = controller.start(user["login"], r["full_name"], token, brief=r.get("brief") or "")
+    run_id = controller.start(user["login"], r["full_name"], token, brief=store.brief_for(_workspaces(user), r["full_name"]))
     return {"fixed": 0, "run": run_id, "message": "The SecureFix agent is fixing this repository."}
 
 

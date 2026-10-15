@@ -56,6 +56,7 @@
     down: '<path d="M12 5v14"/><path d="m6 13 6 6 6-6"/>',
     download: '<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>',
     up: '<path d="M12 19V5"/><path d="m6 11 6-6 6 6"/>',
+    clip: '<path d="m20 11-8.2 8.2a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L15 6.7"/>',
     book: '<path d="M4 5.5C4 4.7 4.7 4 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5c0-.8-.7-1.5-1.5-1.5H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/>',
   };
   function icon(name, size) {
@@ -495,8 +496,8 @@
     report.href = `/api/fleet/repos/${r.id}/report.pdf`;
     report.setAttribute("download", "");
     cell.replaceChildren(h("div", "detail", [
+      briefBox(data.repo, data.brief_files),  // first: the brief shapes every fix below
       major.length ? list : h("p", "detail-empty", "No critical or high problems in this repository."),
-      briefBox(data.repo),
       h("div", "detail-actions", [all, report]),
     ]));
   }
@@ -608,9 +609,9 @@
     const body = $("drawer-body");
     body.replaceChildren();
     const stat = (n, label) => h("div", "drawer-stat", [h("strong", null, fmt(n)), h("span", null, label)]);
+    body.append(briefBox(r, data.brief_files));  // first: the brief shapes every fix below
     body.append(h("div", "drawer-stats", [stat(r.open_critical, "Critical"), stat(r.open_high, "High"),
       stat(r.open_medium, "Medium"), stat(r.open_low, "Low")]));
-    body.append(briefBox(r));
     if (r.scan_status === "no_code_scanning") {
       body.append(h("p", "fix-error", "Code scanning is not turned on for this repository, so SecureFix cannot see its problems yet. Turn on CodeQL in the repository's Settings, Code security."));
     }
@@ -626,31 +627,134 @@
     done.slice(0, 20).forEach((v) => body.append(vulnCard(v)));
   }
 
-  // The owner's project brief: sent with every fix for this repository so the AI knows what the code is for.
-  function briefBox(r) {
-    const ta = h("textarea", "input");
-    ta.maxLength = 2000;
-    ta.value = r.brief || "";
-    ta.setAttribute("aria-label", "Project brief");
-    ta.placeholder = "What does this project do, and what must keep working? For example: a Flask API for school " +
-      "timetables; teachers sign in with Google; the /export endpoint must keep returning CSV.";
-    const saved = h("span", "brief-saved", r.brief ? "Saved" : "");
-    const save = h("button", "btn btn-secondary btn-sm", "Save brief");
-    save.type = "button";
-    ta.addEventListener("input", () => { saved.textContent = ""; });
-    save.addEventListener("click", async () => {
-      save.disabled = true;
-      try {
-        const out = await SF.api(`/api/fleet/repos/${r.id}/brief`, { method: "PUT", body: { brief: ta.value } });
-        r.brief = out.brief;
-        saved.textContent = out.brief ? "Saved" : "Cleared";
-        SF.toast(out.brief ? "Project brief saved. Fixes for this repository will use it." : "Project brief cleared.");
-      } catch (err) { SF.toast(err.message); }
-      finally { save.disabled = false; }
-    });
-    return h("div", "brief", [
-      h("div", "brief-head", [h("strong", null, "Project brief"), h("span", "brief-hint", "Sent with every fix so the AI understands the project")]),
-      ta, h("div", "brief-actions", [saved, save])]);
+  // The owner's project brief (optional): a paragraph plus attached files (docs, notes, API descriptions, code).
+  // SecureFix sends it with every fix and agent run for this repository, so the AI understands what the code is for.
+  const BRIEF_ACCEPT = ".txt,.md,.rst,.pdf,.docx,.json,.yaml,.yml,.toml,.ini,.csv,.sql,.py,.js,.ts,.tsx,.jsx,.html";
+  const MAX_BRIEF_FILES = 5;
+
+  function kb(n) { return n >= 1024 ? Math.round(n / 1024) + " KB" : n + " B"; }
+
+  function briefBox(r, files) {
+    const box = h("div", "brief");
+    const saved = { brief: r.brief || "", files: (files || []).slice() };
+
+    function summary() {
+      const has = saved.brief || saved.files.length;
+      const btn = h("button", "btn btn-secondary btn-sm", has ? "Edit brief" : ["Add brief", icon("arrow", 14)]);
+      btn.type = "button";
+      btn.addEventListener("click", (e) => { e.stopPropagation(); form(); });
+      const head = h("div", "brief-head", [
+        h("div", null, [h("strong", null, "Project brief"),
+          h("span", "brief-hint", has ? " Sent with every fix for this repository" : " Optional: tell SecureFix what this repository does and what must keep working")]),
+        btn]);
+      const kids = [head];
+      if (saved.brief) kids.push(h("p", "brief-text", saved.brief.length > 280 ? saved.brief.slice(0, 280) + "…" : saved.brief));
+      if (saved.files.length) kids.push(h("ul", "brief-files", saved.files.map((f) => h("li", "brief-file", [icon("clip", 12), f.name, h("span", "faint", kb(f.size))]))));
+      if (has && r.source === "github") kids.push(h("div", "brief-actions", [h("span", "brief-hint",
+        "Keep it with the code: SecureFix writes it to BRIEF.md on " + (r.default_branch || "main") + "."), h("span", "spacer"), pushButton()]));
+      box.replaceChildren(...kids);
+    }
+
+    // Write the brief into the repository as BRIEF.md (a commit on the default branch), after a confirmation.
+    function pushButton() {
+      const btn = h("button", "btn btn-secondary btn-sm", [icon("up", 14), "Push BRIEF.md to GitHub"]);
+      btn.type = "button";
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!window.confirm(`Commit BRIEF.md with this brief to ${r.full_name} on ${r.default_branch || "main"}?`)) return;
+        btn.disabled = true;
+        try {
+          const out = await SF.api(`/api/fleet/repos/${r.id}/brief/github`, { method: "POST" });
+          SF.toast(out.unchanged ? "BRIEF.md on GitHub already matches this brief." : "BRIEF.md pushed to GitHub.");
+          if (out.url) {
+            const a = h("a", "btn btn-ghost btn-sm", ["View BRIEF.md", icon("external", 12)]);
+            a.href = out.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+            a.addEventListener("click", (ev) => ev.stopPropagation());
+            btn.replaceWith(a);
+          }
+        } catch (err) { SF.toast(err.message); btn.disabled = false; }
+      });
+      return btn;
+    }
+
+    function form() {
+      let keep = saved.files.slice();
+      let adding = [];
+      const ta = h("textarea", "input");
+      ta.maxLength = 4000;
+      ta.value = saved.brief;
+      ta.setAttribute("aria-label", "Project brief");
+      ta.placeholder = "Describe the project in a paragraph: what it does, who uses it, how sign-in and permissions " +
+        "work, and what must keep working. For example: a Flask API for school timetables; teachers sign in with " +
+        "Google; students may only see their own class; the /export endpoint must keep returning CSV.";
+      const list = h("ul", "brief-files");
+      const picker = h("input");
+      picker.type = "file"; picker.multiple = true; picker.accept = BRIEF_ACCEPT; picker.hidden = true;
+      const attach = h("button", "btn btn-ghost btn-sm", [icon("clip", 14), "Attach files"]);
+      attach.type = "button";
+      const submit = h("button", "btn btn-primary btn-sm", "Submit");
+      submit.type = "button";
+      const cancel = h("button", "btn btn-ghost btn-sm", "Cancel");
+      cancel.type = "button";
+      const note = h("span", "brief-saved", "");
+
+      function drawFiles() {
+        const chip = (name, size, onRemove) => {
+          const x = h("button", "brief-file-x", icon("x", 12));
+          x.type = "button";
+          x.setAttribute("aria-label", "Remove " + name);
+          x.addEventListener("click", (e) => { e.stopPropagation(); onRemove(); drawFiles(); });
+          return h("li", "brief-file", [icon("clip", 12), name, h("span", "faint", kb(size)), x]);
+        };
+        list.replaceChildren(...keep.map((f) => chip(f.name, f.size, () => { keep = keep.filter((k) => k !== f); })),
+          ...adding.map((f) => chip(f.name, f.text.length, () => { adding = adding.filter((a) => a !== f); })));
+        attach.disabled = keep.length + adding.length >= MAX_BRIEF_FILES;
+      }
+
+      attach.addEventListener("click", (e) => { e.stopPropagation(); picker.click(); });
+      picker.addEventListener("change", async () => {
+        const chosen = [...picker.files];
+        picker.value = "";
+        for (const file of chosen) {
+          if (keep.length + adding.length >= MAX_BRIEF_FILES) { SF.toast(`Attach at most ${MAX_BRIEF_FILES} files.`); break; }
+          note.textContent = "Reading " + file.name + "…";
+          const fd = new FormData();
+          fd.append("file", file);
+          try {
+            const out = await SF.api("/api/brief/extract?for_repo=1", { method: "POST", body: fd });
+            adding.push({ name: out.filename || file.name, text: out.text });
+          } catch (err) { SF.toast(file.name + ": " + err.message); }
+        }
+        note.textContent = "";
+        drawFiles();
+      });
+      cancel.addEventListener("click", (e) => { e.stopPropagation(); summary(); });
+      submit.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        submit.disabled = true;
+        note.textContent = "Saving…";
+        try {
+          const out = await SF.api(`/api/fleet/repos/${r.id}/brief`, { method: "PUT", body: {
+            brief: ta.value, keep_files: keep.map((f) => f.id), add_files: adding } });
+          saved.brief = out.brief; saved.files = out.files;
+          r.brief = out.brief;
+          SF.toast(out.brief || out.files.length ? "Project brief saved. Fixes for this repository will use it." : "Project brief cleared.");
+          summary();
+        } catch (err) { SF.toast(err.message); note.textContent = ""; submit.disabled = false; }
+      });
+      [ta, list, box].forEach((el) => el.addEventListener("click", (e) => e.stopPropagation()));
+      ta.addEventListener("keydown", (e) => e.stopPropagation());
+
+      box.replaceChildren(
+        h("div", "brief-head", [h("strong", null, "Project brief"), h("span", "brief-hint", "Optional · a paragraph and up to 5 files (text, Markdown, PDF, Word, code)")]),
+        ta, list, picker,
+        h("div", "brief-actions", [attach, h("span", "spacer"), note, cancel, submit]));
+      drawFiles();
+      ta.focus();
+    }
+
+    summary();
+    return box;
   }
 
   const STATUS_TEXT = { fix_saved: "Fix saved, waiting for review", pr_open: "Pull request open", fixed: "Fixed" };

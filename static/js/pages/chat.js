@@ -279,12 +279,9 @@
       askFollowUp(text);
     } else if (composerMode === "repo") {
       const names = parseRepos(text);
-      if (!names.length) {
-        SF.toast("Type a repository as owner/name or paste its GitHub link.");
-        return;
-      }
       clearInput();
-      checkRepos(names);
+      if (names.length) checkRepos(names);
+      else askAnything(text);  // not a repository: an ordinary message to the assistant
     }
   }
 
@@ -379,6 +376,8 @@
     S.fileMsg = null;
     S.file = null;
     S.data = null;
+    S.talk = [];           // the free conversation in this thread, sent back as context
+    S.agentRun = null;     // the agent run on screen, so questions can be about it
     renderAttachment();
     clearInput();
     thread.replaceChildren();
@@ -394,7 +393,7 @@
     S.phase = "repo";
     setRepoChip(null);
     S.multi = new Set();
-    setComposer("repo", "Pick repositories below, or type any public one: owner/name or a GitHub link");
+    setComposer("repo", "Pick repositories below, type any public one (owner/name or a GitHub link), or ask me anything");
     showWelcome(S.run);
   }
 
@@ -679,7 +678,7 @@
   function afterCheck() {
     S.phase = "repo";
     S.multi = new Set();
-    setComposer("repo", "Type another repository (owner/name), or pick from the list");
+    setComposer("repo", "Type another repository (owner/name), pick from the list, or ask me anything");
     setQuick([{ label: "Check more repositories", primary: true, onClick: () => openRepoMenu(repoChip) },
       { label: "Start over", onClick: () => startNew(true) }]);
   }
@@ -1374,6 +1373,36 @@
     }
   }
 
+  // Any message that is not a repository: the assistant answers, with the agent run on screen (if any) and the
+  // repository's project brief as context. The conversation stays in this thread.
+  async function askAnything(text, retrying) {
+    const run = S.run;
+    if (!retrying) userMsg(text);
+    const before = S.phase;
+    setComposer("off", "Thinking");
+    const wait = typing();
+    try {
+      const res = await SF.api("/api/chat/ask", { method: "POST", body: {
+        text: text, history: (S.talk || []).slice(-8), run_id: S.agentRun || null,
+        repo: S.repo ? S.repo.full_name : null } });
+      if (run !== S.run) return;
+      wait.remove();
+      S.talk = (S.talk || []).concat([{ role: "user", text: text }, { role: "assistant", text: res.reply }]).slice(-16);
+      assistant(String(res.reply || "").split(/\n{2,}/).map((para) => p(para, "msg-reply")));
+    } catch (err) {
+      if (run !== S.run) return;
+      wait.remove();
+      errorMsg(calm(err, "I could not answer that just now."), () => askAnything(text, true));
+    } finally {
+      if (run === S.run) {
+        S.phase = before;
+        setComposer("repo", S.agentRun ? "Ask about this result, type another repository, or pick from the list"
+          : "Type a repository (owner/name or a GitHub link), pick from the list, or ask me anything");
+        input.focus({ preventScroll: true });
+      }
+    }
+  }
+
   // ---------------------------------------------------------------- open a stored conversation
 
   async function loadAnalysis(id, opts) {
@@ -1496,6 +1525,7 @@
       setRepoChip({ full_name: d.repo });
       renderSteps(steps, d.steps);
       if (d.status === "running") { S.pollTimer = setTimeout(tick, 1500); return; }
+      S.agentRun = d.id;
       renderAgentResult(d);
       afterAgent();
     };
@@ -1641,7 +1671,7 @@
 
   function afterAgent() {
     S.phase = "repo";
-    setComposer("repo", "Type another repository (owner/name or a GitHub link), or pick from the list");
+    setComposer("repo", "Ask about this result, type another repository (owner/name or a link), or pick from the list");
     setQuick([{ label: "Check another repository", primary: true, onClick: () => openRepoMenu(repoChip) },
       { label: "Start over", onClick: () => startNew(true) }]);
   }

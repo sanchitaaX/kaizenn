@@ -731,3 +731,31 @@ def test_delete_data_signs_out_and_removes_the_profile(demo):
     assert r.status_code == 200 and r.json()["redirect"] == "/login"
     assert demo.get("/api/analyses").status_code == 401
     assert db.get_user(fixtures.USER["login"]) is None
+
+
+def test_any_message_gets_an_answer_without_ai(demo, monkeypatch):
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    r = demo.post("/api/chat/ask", json={"text": "what does Verified mean?"})
+    assert r.status_code == 200 and r.json()["live_ai"] is False and "repository" in r.json()["reply"]
+    assert demo.post("/api/chat/ask", json={"text": "   "}).status_code == 422
+
+
+def test_any_message_is_answered_with_the_run_on_screen_as_context(demo, monkeypatch):
+    from app import llm
+    from app.agent import controller
+
+    seen = {}
+
+    def fake(system, messages, timeout=40):
+        seen.update(system=system, messages=messages)
+        return "Fix 2 failed because the exploit still worked."
+
+    monkeypatch.setattr(settings, "llm_api_key", "test-key")
+    monkeypatch.setattr(llm, "chat_messages", fake)
+    login = demo.get("/api/me").json()["user"]["login"]
+    run_id = controller.create(login, "acme/shop", None, None)
+    r = demo.post("/api/chat/ask", json={"text": "why did fix 2 fail?", "run_id": run_id,
+                                         "history": [{"role": "user", "text": "hi"}, {"role": "assistant", "text": "hello"}]})
+    assert r.status_code == 200 and r.json()["reply"].startswith("Fix 2 failed")
+    assert f"Agent run {run_id} on acme/shop" in seen["system"] and "<untrusted" in seen["system"]
+    assert [m["role"] for m in seen["messages"]] == ["user", "assistant", "user"]
