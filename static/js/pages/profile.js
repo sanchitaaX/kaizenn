@@ -67,6 +67,22 @@
     });
   });
 
+  // Quests & rewards: its own switch, saved on change. Reload so the rewards list matches.
+  const gameSwitch = document.getElementById("game-mode");
+  if (gameSwitch) gameSwitch.addEventListener("change", async () => {
+    gameSwitch.disabled = true;
+    try {
+      await sf.api("/api/profile/modes", { method: "POST", body: { game_mode: gameSwitch.checked } });
+      toast(gameSwitch.checked ? "Quests & rewards on" : "Quests & rewards off");
+      setTimeout(() => window.location.reload(), 700);
+    } catch (err) {
+      gameSwitch.checked = !gameSwitch.checked;
+      toast(err.message || "Could not save. Try again.");
+    } finally {
+      gameSwitch.disabled = false;
+    }
+  });
+
   // Your data: clear history, or delete everything and sign out.
   const clearBtn = document.getElementById("clear-history");
   const deleteBtn = document.getElementById("delete-data");

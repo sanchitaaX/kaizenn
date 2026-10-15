@@ -38,3 +38,11 @@
 .pf-danger { color: var(--alert-ink); border-color: var(--alert-tint-2); }
 .pf-danger:hover:not(:disabled) { background: var(--alert-tint); }
 @media (max-width: 560px) { .pf-data-row { flex-direction: column; align-items: stretch; } }
+
+.pf-rewards { margin-top: var(--s-4); }
+.pf-rewards .list-row { gap: var(--s-3); }
+.pf-code { font-family: var(--mono); font-size: var(--fs-13); color: var(--accent-ink); display: block; }
+.pf-demo {
+  font-size: var(--fs-12); font-weight: 600; color: var(--alert-ink); background: var(--alert-tint);
+  border-radius: var(--r-pill); padding: 2px var(--s-2); white-space: nowrap;
+}
