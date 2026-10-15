@@ -357,6 +357,6 @@ a.resource:hover { background: var(--surface-soft); text-decoration: none; }
 /* ---------- Top bar on the chat page: a slight periwinkle wash ---------- */
 .topbar {
   background:
-    linear-gradient(90deg, rgba(94, 106, 210, 0.11) 0%, rgba(94, 106, 210, 0.04) 50%, rgba(201, 99, 90, 0.06) 100%),
+    linear-gradient(90deg, rgba(94, 106, 210, 0.20) 0%, rgba(94, 106, 210, 0.08) 50%, rgba(201, 99, 90, 0.12) 100%),
     var(--surface);
 }
