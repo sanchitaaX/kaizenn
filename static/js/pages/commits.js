@@ -13,6 +13,12 @@
   let commits = [];
   const filters = { member: "", state: "" };
   let failed = false;
+  let repo = "";          // "" = every repository already pulled in, else "owner/name"
+  let loadRun = 0;        // ignore answers from an older repository pick
+  const repoSelect = document.getElementById("repo-select");
+  const memberFilter = document.getElementById("member-filter");
+  const REPO_KEY = "securefix.commits.repo";
+  const repoPath = (name) => String(name).split("/").map(encodeURIComponent).join("/");
 
   const el = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -126,11 +132,15 @@
       (!filters.state || c.state === filters.state));
 
     if (!commits.length) {
-      listEl.appendChild(emptyState("No commits yet",
-        "Pick a repository in chat and your commits will show up here."));
-      const a = el("a", "btn btn-secondary btn-sm", "Go to chat");
-      a.href = "/chat";
-      listEl.firstChild.appendChild(a);
+      if (repo) {
+        listEl.appendChild(emptyState("No commits yet", "This repository has no commits on its main branch yet."));
+      } else {
+        listEl.appendChild(emptyState("No commits yet",
+          "Pick a repository above, or check one in chat, and its commits will show up here."));
+        const a = el("a", "btn btn-secondary btn-sm", "Go to chat");
+        a.href = "/chat";
+        listEl.firstChild.appendChild(a);
+      }
       return;
     }
 
@@ -160,6 +170,25 @@
     listEl.appendChild(list);
   }
 
+  function renderMembers() {
+    const seen = new Map();
+    commits.forEach((c) => {
+      const a = c.author || {};
+      if (a.login && !seen.has(a.login)) seen.set(a.login, a);
+    });
+    if (filters.member && !seen.has(filters.member)) filters.member = "";
+    memberFilter.querySelectorAll(".filter-pill:not([data-member=''])").forEach((n) => n.remove());
+    [...seen.values()].sort((x, y) => (x.name || x.login).localeCompare(y.name || y.login)).forEach((m) => {
+      const b = el("button", "filter-pill");
+      b.type = "button";
+      b.dataset.member = m.login;
+      b.appendChild(avatar(m));
+      b.appendChild(el("span", "", (m.name || m.login).split(" ")[0]));
+      memberFilter.appendChild(b);
+    });
+    syncPills();
+  }
+
   function syncPills() {
     document.querySelectorAll("#member-filter .filter-pill").forEach((b) =>
       b.setAttribute("aria-pressed", String(b.dataset.member === filters.member)));
@@ -183,16 +212,46 @@
   }
 
   async function load() {
+    const run = ++loadRun;
     failed = false;
     listEl.setAttribute("aria-busy", "true");
     try {
-      const data = await SF.api("/api/commits");
-      commits = Array.isArray(data.commits) ? data.commits : [];
+      // One repository: fetch its commits fresh (this pulls them from GitHub). All: what is already pulled in.
+      const data = await SF.api(repo ? "/api/repos/" + repoPath(repo) + "/commits" : "/api/commits");
+      if (run !== loadRun) return;
+      commits = (Array.isArray(data.commits) ? data.commits : []).map((c) => (repo && !c.repo ? { ...c, repo } : c));
     } catch (err) {
+      if (run !== loadRun) return;
       failed = true;
+      commits = [];
     }
+    renderMembers();
     render();
   }
+
+  async function loadRepos() {
+    let saved = "";
+    try { saved = localStorage.getItem(REPO_KEY) || ""; } catch (_) { /* storage blocked */ }
+    try {
+      const data = await SF.api("/api/repos");
+      (data.repos || []).forEach((r) => {
+        const o = el("option", "", r.full_name);
+        o.value = r.full_name;
+        repoSelect.appendChild(o);
+      });
+      if (saved && [...repoSelect.options].some((o) => o.value === saved)) repo = saved;
+    } catch (_) {
+      SF.toast("I could not load your repositories. Showing everything already checked.");
+    }
+    repoSelect.value = repo;
+  }
+
+  repoSelect.addEventListener("change", () => {
+    repo = repoSelect.value;
+    try { localStorage.setItem(REPO_KEY, repo); } catch (_) { /* storage blocked */ }
+    filters.member = "";
+    load();
+  });
 
   document.getElementById("member-filter").addEventListener("click", (e) => {
     const b = e.target.closest(".filter-pill");
@@ -209,5 +268,5 @@
     render();
   });
 
-  load();
+  loadRepos().then(load);
 })();

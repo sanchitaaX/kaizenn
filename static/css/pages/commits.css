@@ -50,3 +50,13 @@
   .commit-message { white-space: normal; }
   .commit-end { justify-content: space-between; }
 }
+
+/* Repository picker in the page header */
+.page-commits .page-head { align-items: flex-end; flex-wrap: wrap; }
+.repo-select { position: relative; display: inline-flex; align-items: center; min-width: 240px; max-width: 100%; }
+.repo-select .select { padding-left: 36px; padding-right: 36px; border-radius: var(--r-pill); font-weight: 600; cursor: pointer; }
+.repo-select-icon {
+  position: absolute; left: 14px; width: 16px; height: 16px; pointer-events: none;
+  fill: none; stroke: var(--ink-soft); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round;
+}
+@media (max-width: 560px) { .repo-select { width: 100%; } }
