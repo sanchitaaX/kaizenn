@@ -1,0 +1,612 @@
+{% extends "base.html" %}
+
+{% block title %}{% if selected %}{{ selected.message }} | {% endif %}SecureFix{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="/static/css/pages/dashboard.css">
+{% endblock %}
+
+{% block body_class %}page-dashboard{% endblock %}
+
+{% macro ordinal(n) -%}
+  {%- if n % 100 in [11, 12, 13] -%}{{ n }}th
+  {%- elif n % 10 == 1 -%}{{ n }}st
+  {%- elif n % 10 == 2 -%}{{ n }}nd
+  {%- elif n % 10 == 3 -%}{{ n }}rd
+  {%- else -%}{{ n }}th{%- endif -%}
+{%- endmacro %}
+
+{% macro step_icon(key) -%}
+  {%- if key == 'find' -%}
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+  {%- elif key == 'hack' -%}
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>
+  {%- elif key == 'fix' -%}
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+  {%- else -%}
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+  {%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+{# ---------- Derived values ---------- #}
+{% set mode_q = request.query_params.get('mode') %}
+{% set state = selected.state %}
+{% set author = member(selected.author) %}
+{% set bug = bug_types.get(report.bug_type if report else selected.bug_type) if (report or selected.bug_type) else None %}
+{% set is_mine = selected.author == user.login %}
+{% set show_report = user.report_mode or not user.learn_mode %}
+{% set show_learn = user.learn_mode and report and report.learning %}
+{% set state_badge = {'new': 'badge-new', 'safe': 'badge-safe', 'fixed': 'badge-fixed', 'attention': 'badge-attention'} %}
+{% set step_names = {'find': 'Find', 'hack': 'Hack', 'fix': 'Fix', 'prove': 'Prove'} %}
+{% set status_words = {'idle': 'Not run', 'running': 'Running', 'attack': 'Attack worked', 'pass': 'Passed', 'fail': 'Failed'} %}
+{% if report and report.steps %}
+  {% set steps = report.steps %}
+{% elif state == 'safe' %}
+  {% set steps = {
+    'find': {'status': 'pass', 'note': 'No provable bug'},
+    'hack': {'status': 'idle', 'note': 'No attack needed'},
+    'fix': {'status': 'idle', 'note': 'Nothing to fix'},
+    'prove': {'status': 'idle', 'note': 'Nothing to prove'}} %}
+{% else %}
+  {% set steps = {
+    'find': {'status': 'idle', 'note': 'Waiting to scan'},
+    'hack': {'status': 'idle', 'note': 'Not run yet'},
+    'fix': {'status': 'idle', 'note': 'Not run yet'},
+    'prove': {'status': 'idle', 'note': 'Not run yet'}} %}
+{% endif %}
+{% set ns = namespace(last=0) %}
+{% for key in ['find', 'hack', 'fix', 'prove'] %}
+  {% if steps[key] and steps[key].status != 'idle' %}{% set ns.last = loop.index0 %}{% endif %}
+{% endfor %}
+{% set author_commits = commits | selectattr('author', 'equalto', selected.author) | list %}
+{% set author_bugs = author_commits | selectattr('state', 'in', ['fixed', 'attention']) | list %}
+{% set active_rules = rules | selectattr('enabled') | list %}
+
+{% set icon_tick %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>{% endset %}
+{% set icon_x %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>{% endset %}
+{% set icon_list %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>{% endset %}
+{% set icon_clock %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>{% endset %}
+{# Header band numbers, all from real counts #}
+{% set total_commits = commits | length %}
+{% set scanned_n = total_commits - counts.new %}
+{% set bugs_n = counts.fixed + counts.attention %}
+{% set fixes_n = counts.fixed %}
+{% set first_name = ((user.name or user.login or 'there') | string).split(' ')[0] %}
+{% set seg_order = ['fixed', 'attention', 'safe', 'new'] %}
+{% set seg_class = {'fixed': 'seg-fixed', 'attention': 'seg-attention', 'safe': 'seg-safe', 'new': 'seg-hatch'} %}
+{% set seg_bits = [] %}
+{% for key in seg_order %}{% if counts[key] %}{% set _ = seg_bits.append(counts[key] ~ ' ' ~ (state_labels[key] | lower)) %}{% endif %}{% endfor %}
+
+{# Team bar chart data: commits per teammate, selected author highlighted #}
+{% set team = namespace(rows=[], top=1) %}
+{% for m in members[:6] %}
+  {% set n = commits | selectattr('author', 'equalto', m.login) | list | length %}
+  {% if n > team.top %}{% set team.top = n %}{% endif %}
+  {% set team.rows = team.rows + [{'login': m.login, 'name': m.name, 'avatar_url': m.avatar_url, 'n': n,
+     'bugs': (commits | selectattr('author', 'equalto', m.login) | selectattr('state', 'in', ['fixed', 'attention']) | list | length)}] %}
+{% endfor %}
+
+<div class="page dash-page">
+
+  {# ================= Header band ================= #}
+  <section class="dash-band" aria-label="Overview">
+    <div class="band-intro">
+      <p class="display-title">Welcome back, {{ first_name }}</p>
+      <p class="muted band-sub">
+        {% if total_commits == 0 %}No commits yet. Sync to bring in the latest from {{ repo.full_name }}.
+        {% elif counts.attention %}{{ counts.attention }} {{ 'commit still needs' if counts.attention == 1 else 'commits still need' }} attention in {{ repo.full_name }}.
+        {% elif counts.new %}{{ counts.new }} new {{ 'commit is' if counts.new == 1 else 'commits are' }} waiting to be scanned in {{ repo.full_name }}.
+        {% else %}Every scanned commit in {{ repo.full_name }} is fixed or safe.{% endif %}
+      </p>
+    </div>
+
+    <div class="band-stats">
+      <div class="stat">
+        <span class="display-num" id="stat-scanned">{{ scanned_n }}</span>
+        <span class="stat-label"><span class="stat-icon" aria-hidden="true">{{ step_icon('find') }}</span>Commits scanned</span>
+      </div>
+      <div class="stat">
+        <span class="display-num" id="stat-bugs">{{ bugs_n }}</span>
+        <span class="stat-label"><span class="stat-icon" aria-hidden="true">{{ step_icon('hack') }}</span>Bugs proven</span>
+      </div>
+      <div class="stat">
+        <span class="display-num" id="stat-fixes">{{ fixes_n }}</span>
+        <span class="stat-label"><span class="stat-icon" aria-hidden="true">{{ step_icon('prove') }}</span>Fixes verified</span>
+      </div>
+    </div>
+
+    <div class="band-dist">
+      {% if total_commits %}
+      <div role="img" aria-label="Commit states: {{ seg_bits | join(', ') }}">
+        <div class="seg-labels" aria-hidden="true">
+          {% for key in seg_order if counts[key] %}<span style="flex: {{ counts[key] }}" title="{{ state_labels[key] }}">{{ state_labels[key] }}</span>{% endfor %}
+        </div>
+        <div class="segbar" aria-hidden="true">
+          {% for key in seg_order if counts[key] %}<div class="seg {{ seg_class[key] }}" style="flex: {{ counts[key] }}">{{ counts[key] }}</div>{% endfor %}
+        </div>
+      </div>
+      {% else %}
+      <div class="segbar hatch band-empty" role="img" aria-label="No commits to show yet"></div>
+      {% endif %}
+    </div>
+  </section>
+
+  <div class="dash" id="dashboard" data-sha="{{ selected.sha if selected else '' }}" data-state="{{ state if selected else '' }}" data-scan-status="{{ scan_status or 'idle' }}">
+
+    {# ================= Left: commit list ================= #}
+    <aside class="dash-col dash-list glass panel" aria-label="Commits">
+      <div class="repo-pill" title="Connected repository">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5z"/><path d="M4 19a2 2 0 0 1 2-2h13"/><path d="M9 7h6"/></svg>
+        <span class="repo-name">{{ repo.full_name }}</span>
+        <span class="repo-branch">{{ repo.default_branch }}</span>
+      </div>
+
+      <button class="btn btn-primary btn-block" type="button" id="sync-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M3 21v-5h5"/><path d="M21 3v5h-5"/></svg>
+        <span class="btn-label">Sync commits</span>
+      </button>
+      <p class="hint sync-hint" id="sync-hint">Last synced {{ repo.last_synced }}</p>
+
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <label class="sr-only" for="commit-search">Search commits</label>
+        <input class="input" type="search" id="commit-search" placeholder="Search commits" autocomplete="off">
+      </div>
+
+      <div class="chips state-filter" role="group" aria-label="Filter by state">
+        <button class="chip" type="button" data-filter="all" aria-pressed="true">All <span class="chip-count">{{ commits | length }}</span></button>
+        {% for key in ['attention', 'fixed', 'new', 'safe'] %}
+        <button class="chip" type="button" data-filter="{{ key }}" aria-pressed="false">
+          <span class="dot dot-{{ key }}" aria-hidden="true"></span>{{ state_labels[key] }} <span class="chip-count">{{ counts[key] }}</span>
+        </button>
+        {% endfor %}
+      </div>
+
+      <ul class="commit-list" id="commit-list">
+        {% for c in commits %}
+        {% set m = member(c.author) %}
+        {% set is_selected = c.sha == selected.sha %}
+        <li data-state="{{ c.state }}" data-search="{{ (c.message ~ ' ' ~ c.author ~ ' ' ~ m.name ~ ' ' ~ c.sha ~ ' ' ~ (bug_types[c.bug_type].name if c.bug_type in bug_types else '')) | lower }}">
+          <a class="commit-item{% if is_selected %} is-selected{% endif %}" href="?commit={{ c.sha }}{% if mode_q %}&amp;mode={{ mode_q | urlencode }}{% endif %}" {% if is_selected %}aria-current="true"{% endif %}>
+            <span class="commit-top">
+              <span class="dot dot-{{ c.state }}" aria-hidden="true"></span>
+              <span class="commit-msg">{{ c.message }}</span>
+            </span>
+            <span class="commit-meta">
+              <span class="avatar-wrap">
+                <img class="avatar sm" src="{{ m.avatar_url }}" alt="">
+                {% if c.repeat_count and c.repeat_count >= 2 %}<span class="count-badge is-attack" title="Same type of bug, {{ ordinal(c.repeat_count) }} time" aria-hidden="true">{{ c.repeat_count }}</span>{% endif %}
+              </span>
+              <span class="commit-author">{{ m.name }}</span>
+              <span class="commit-time">{{ c.time }}</span>
+              <code class="commit-sha">{{ c.sha }}</code>
+            </span>
+            <span class="commit-tags">
+              <span class="sr-only">State: </span><span class="badge {{ state_badge[c.state] }}">{{ state_labels[c.state] }}</span>
+              {% if c.repeat_count and c.repeat_count >= 2 %}
+              <span class="badge badge-repeat" title="Same type of bug as before">{{ ordinal(c.repeat_count) }} time</span>
+              {% endif %}
+            </span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="list-empty muted" id="list-empty" hidden>No commits match. Try another search or filter.</p>
+    </aside>
+
+    {# ================= Centre: selected commit ================= #}
+    <section class="dash-col dash-main glass panel" aria-labelledby="commit-title">
+      {% if not selected %}
+      <h1 id="commit-title" class="sr-only">Commits</h1>
+      <div class="empty">
+        <span class="empty-icon empty-icon-new" aria-hidden="true">{{ step_icon('find') }}</span>
+        <p class="empty-title">No commits yet</p>
+        <p class="muted">Use Sync commits to bring in the latest commits from {{ repo.full_name }}. Each one shows up here as New, ready to scan.</p>
+      </div>
+      {% else %}
+      <header class="commit-head">
+        <div class="commit-head-text">
+          <div class="commit-head-meta">
+            <span class="badge {{ state_badge[state] }}">{{ state_labels[state] }}</span>
+            <code class="sha-pill">{{ selected.sha }}</code>
+            <span class="faint">{{ selected.time }}</span>
+          </div>
+          <h1 id="commit-title" class="commit-title">{{ selected.message }}</h1>
+          <p class="muted commit-by">
+            <img class="avatar sm" src="{{ author.avatar_url }}" alt="">
+            Pushed by {{ author.name }}{% if is_mine %} (you){% endif %}
+          </p>
+        </div>
+        <div class="commit-actions">
+          {% if state == 'new' %}
+          <button class="btn btn-accent" type="button" data-action="scan">
+            {{ step_icon('find') }}<span class="btn-label">Scan commit</span>
+          </button>
+          {% else %}
+          <button class="btn btn-glass" type="button" data-action="scan">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+            <span class="btn-label">Re-run scan</span>
+          </button>
+          {% endif %}
+          {% if user.report_mode and report and state == 'fixed' %}
+            {% if report.pull_request %}
+            <a class="btn btn-accent" href="{{ report.pull_request.url }}" {% if report.pull_request.url != '#' %}target="_blank" rel="noopener"{% endif %}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v7"/><path d="M18 15.5V9a3 3 0 0 0-3-3h-4"/><path d="M13 3.5 10.5 6 13 8.5"/></svg>
+              {% if report.pull_request.status == 'merged' %}Pull request #{{ report.pull_request.number }} merged{% else %}Open pull request #{{ report.pull_request.number }}{% endif %}
+            </a>
+            {% else %}
+            <button class="btn btn-accent" type="button" data-action="pull-request">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5v7"/><path d="M18 15.5V9a3 3 0 0 0-3-3h-4"/><path d="M13 3.5 10.5 6 13 8.5"/></svg>
+              <span class="btn-label">Open pull request</span>
+            </button>
+            {% endif %}
+          {% endif %}
+        </div>
+      </header>
+
+      {# ---------- Proof rail ---------- #}
+      <div class="rail-wrap card-glow">
+        <h2 class="sr-only">Scan steps</h2>
+        <ol class="proof-rail" id="proof-rail" style="--progress: {{ (ns.last / 3) | round(3) }}" aria-label="Find, hack, fix, prove">
+          {% for key in ['find', 'hack', 'fix', 'prove'] %}
+          {% set s = steps[key] or {'status': 'idle', 'note': ''} %}
+          <li class="proof-step" data-step="{{ key }}" data-status="{{ s.status }}" data-note="{{ s.note }}">
+            <span class="proof-orb">{{ step_icon(key) }}</span>
+            <span class="proof-name">{{ step_names[key] }}</span>
+            <span class="proof-note">{{ s.note }}</span>
+            <span class="sr-only proof-status">{{ status_words.get(s.status, s.status) }}</span>
+          </li>
+          {% endfor %}
+        </ol>
+      </div>
+
+      {% if report and state in ['fixed', 'attention'] %}
+
+        {% if state == 'attention' %}
+        <div class="callout callout-attention" role="note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4"/><path d="M12 17.5v.01"/></svg>
+          <div>
+            <p class="callout-title">This bug is real and still open</p>
+            <p>We proved the attack works, but none of our patches passed both checks. Someone on the team needs to fix this by hand.</p>
+          </div>
+        </div>
+        {% endif %}
+
+        {# What was wrong #}
+        <section class="report-block" aria-labelledby="h-wrong">
+          <div class="block-head">
+            <h2 id="h-wrong" class="section-title">{% if user.learn_mode and is_mine %}What you did wrong{% else %}What was wrong{% endif %}</h2>
+            {% if bug %}<span class="bug-pill">{{ bug.name }}</span>{% endif %}
+          </div>
+          <p class="lead">{{ report.explanation }}</p>
+          <div class="facts">
+            {% if report.file %}
+            <span class="fact"><span class="fact-label">Where</span> <code>{{ report.file }}{% if report.line %}, line {{ report.line }}{% endif %}</code></span>
+            {% endif %}
+            {% if bug %}
+            <span class="fact"><span class="fact-label">In short</span> {{ bug.plain }}</span>
+            {% endif %}
+          </div>
+          {% if report.rule %}
+          <div class="rule-hit">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4h6l1 2h3v14H5V6h3l1-2z"/><path d="M9 13l2 2 4-4"/></svg>
+            <p>Breaks your project rule <strong>"{{ report.rule }}"</strong> Scanners alone would miss this.</p>
+          </div>
+          {% endif %}
+        </section>
+
+        {# The attack #}
+        {% if report.attack %}
+        <section class="report-block card-glow is-rose" aria-labelledby="h-attack">
+          <div class="block-head">
+            <h2 id="h-attack" class="section-title">The attack</h2>
+            {% if report.attack.before == 'SUCCESS' %}<span class="badge badge-attack">Attack worked</span>{% else %}<span class="badge badge-safe">Attack failed</span>{% endif %}
+          </div>
+          <p class="muted">We wrote a small attack and ran it against this commit in a sandbox.</p>
+          <dl class="attack-grid">
+            {% if report.attack.payload %}
+            <div>
+              <dt>What we sent</dt>
+              <dd><code class="code-chip">{{ report.attack.payload }}</code></dd>
+            </div>
+            {% endif %}
+            <div>
+              <dt>What happened</dt>
+              <dd><pre class="evidence">{{ report.attack.evidence }}</pre></dd>
+            </div>
+          </dl>
+        </section>
+        {% endif %}
+
+        {# The fix #}
+        <section class="report-block card-glow {{ 'is-mint' if report.fix_diff else 'is-butter' }}" aria-labelledby="h-fix">
+          <div class="block-head">
+            <h2 id="h-fix" class="section-title">The fix</h2>
+            {% if report.fix_diff %}
+            <span class="faint fix-meta">{% if report.attempts %}Patched on attempt {{ report.attempts }}{% endif %}</span>
+            <button class="btn btn-ghost btn-small" type="button" data-action="copy-diff">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+              Copy
+            </button>
+            {% endif %}
+          </div>
+          {% if report.fix_diff %}
+          <div class="diff" id="fix-diff" role="region" aria-label="Code changes" tabindex="0">
+            {%- for line in report.fix_diff.splitlines() -%}
+            {%- if line.startswith('+++') or line.startswith('---') or line.startswith('@@') -%}
+            <span class="diff-line diff-meta">{{ line }}</span>
+            {%- elif line.startswith('+') -%}
+            <span class="diff-line diff-add"><span class="sr-only">Added: </span>{{ line }}</span>
+            {%- elif line.startswith('-') -%}
+            <span class="diff-line diff-del"><span class="sr-only">Removed: </span>{{ line }}</span>
+            {%- else -%}
+            <span class="diff-line">{{ line }}</span>
+            {%- endif -%}
+            {%- endfor -%}
+          </div>
+          {% else %}
+          <div class="empty empty-inline">
+            <span class="empty-icon empty-icon-attention" aria-hidden="true">{{ step_icon('fix') }}</span>
+            <div>
+              <p class="empty-title">No safe fix yet</p>
+              <p class="muted">{% if report.steps and report.steps.fix and report.steps.fix.note %}{{ report.steps.fix.note }}. {% endif %}We only offer a fix when the attack is blocked and every test passes.</p>
+            </div>
+          </div>
+          {% endif %}
+        </section>
+
+        {# Proof: dark task card with check circles and a tests ring #}
+        {% set blocked = report.attack_after == 'BLOCKED' %}
+        {% set has_tests = report.tests and report.tests.total %}
+        {% set all_pass = has_tests and report.tests.passed == report.tests.total %}
+        <section class="report-block proof-card card-ink" aria-labelledby="h-proof">
+          <div class="card-head">
+            <div>
+              <h2 id="h-proof" class="card-title">Proof</h2>
+              <p class="muted proof-sub">{% if blocked %}The attack no longer works on the fixed code.{% else %}The attack still works, so there is nothing to approve yet.{% endif %}</p>
+            </div>
+            {% if report.pull_request and report.pull_request.url %}
+            <a class="round-btn" href="{{ report.pull_request.url }}" {% if report.pull_request.url != '#' %}target="_blank" rel="noopener"{% endif %} aria-label="Open pull request #{{ report.pull_request.number }}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+            </a>
+            {% endif %}
+          </div>
+          <div class="proof-body">
+            <ul class="task-list">
+              {% if report.attack %}
+              {% set worked = report.attack.before == 'SUCCESS' %}
+              <li class="task">
+                <span class="task-well">{{ step_icon('hack') }}</span>
+                <span class="task-body"><span class="task-title">Attack before the fix</span><span class="task-meta">{{ 'It got through' if worked else 'It was stopped' }}</span></span>
+                <span class="check {{ 'is-attack' if worked else 'is-pass' }}">{% if worked %}{{ icon_x }}{% else %}{{ icon_tick }}{% endif %}<span class="sr-only">{{ 'Attack worked' if worked else 'Attack failed' }}</span></span>
+              </li>
+              <li class="dotted-row" aria-hidden="true"><hr class="dotted"></li>
+              {% endif %}
+              <li class="task">
+                <span class="task-well">{{ step_icon('prove') }}</span>
+                <span class="task-body"><span class="task-title">{{ 'Attack after the fix' if blocked else 'Attack right now' }}</span><span class="task-meta">{{ 'Blocked' if blocked else 'Still works' }}</span></span>
+                <span class="check {{ 'is-pass' if blocked else 'is-fail' }}">{% if blocked %}{{ icon_tick }}{% else %}{{ icon_x }}{% endif %}<span class="sr-only">{{ 'Passed' if blocked else 'Failed' }}</span></span>
+              </li>
+              {% if report.tests %}
+              <li class="dotted-row" aria-hidden="true"><hr class="dotted"></li>
+              <li class="task">
+                <span class="task-well">{{ icon_list }}</span>
+                <span class="task-body"><span class="task-title">Tests</span><span class="task-meta">{{ report.tests.passed }} of {{ report.tests.total }} pass</span></span>
+                <span class="check {{ 'is-pass' if all_pass else 'is-fail' }}">{% if all_pass %}{{ icon_tick }}{% else %}{{ icon_x }}{% endif %}<span class="sr-only">{{ 'Passed' if all_pass else 'Failed' }}</span></span>
+              </li>
+              {% endif %}
+              {% if report.attempts %}
+              <li class="dotted-row" aria-hidden="true"><hr class="dotted"></li>
+              <li class="task is-done">
+                <span class="task-well">{{ step_icon('fix') }}</span>
+                <span class="task-body"><span class="task-title">Fix attempts</span><span class="task-meta">{{ report.attempts }} {{ 'attempt' if report.attempts == 1 else 'attempts' }}{% if report.duration %}, scan took {{ report.duration }}{% endif %}</span></span>
+                <span class="check is-done">{{ icon_tick }}</span>
+              </li>
+              {% elif report.duration %}
+              <li class="dotted-row" aria-hidden="true"><hr class="dotted"></li>
+              <li class="task is-done">
+                <span class="task-well">{{ icon_clock }}</span>
+                <span class="task-body"><span class="task-title">Scan time</span><span class="task-meta">{{ report.duration }}</span></span>
+                <span class="check is-done">{{ icon_tick }}</span>
+              </li>
+              {% endif %}
+            </ul>
+            {% if has_tests %}
+            <div class="proof-gauge">
+              <div class="ring {{ 'is-fixed' if all_pass else 'is-attention' }}" style="--value: {{ (report.tests.passed / report.tests.total) | round(3) }}" role="img" aria-label="Tests passed: {{ report.tests.passed }} of {{ report.tests.total }}">
+                <div class="ring-center"><b>{{ report.tests.passed }}/{{ report.tests.total }}</b><span>tests pass</span></div>
+              </div>
+            </div>
+            {% endif %}
+          </div>
+        </section>
+
+      {% elif state == 'safe' %}
+        <div class="empty">
+          <span class="empty-icon empty-icon-safe" aria-hidden="true">{{ step_icon('prove') }}</span>
+          <p class="empty-title">No provable bug in this commit</p>
+          <p class="muted">We scanned it and tried to attack it against {{ active_rules | length }} project rules. Nothing worked, so there is nothing to report.</p>
+        </div>
+
+      {% elif state == 'new' %}
+        <div class="empty hatch">
+          <span class="empty-icon empty-icon-new" aria-hidden="true">{{ step_icon('find') }}</span>
+          <p class="empty-title">This commit has not been scanned yet</p>
+          <p class="muted">A scan checks the code with Semgrep, Bandit and your project rules, then tries a real attack. We only report a bug if the attack works.</p>
+          <button class="btn btn-accent" type="button" data-action="scan">
+            {{ step_icon('find') }}<span class="btn-label">Scan commit</span>
+          </button>
+        </div>
+
+      {% else %}
+        <div class="empty">
+          <span class="empty-icon empty-icon-attention" aria-hidden="true">{{ step_icon('hack') }}</span>
+          <p class="empty-title">The report is not ready</p>
+          <p class="muted">This commit has a result, but its full report could not be loaded. Run the scan again to rebuild it.</p>
+        </div>
+      {% endif %}
+      {% endif %}
+    </section>
+
+    {# ================= Right: details ================= #}
+    <aside class="dash-col dash-side" aria-label="Details">
+
+      {# Author #}
+      {% if selected %}
+      <section class="glass card author-card" aria-labelledby="h-author">
+        <div class="card-head">
+          <div class="author-id">
+            <span class="avatar-wrap">
+              <img class="avatar lg" src="{{ author.avatar_url }}" alt="">
+              {% if author_bugs %}<span class="count-badge is-attention" aria-hidden="true">{{ author_bugs | length }}</span>{% endif %}
+            </span>
+            <div class="author-text">
+              <h2 id="h-author" class="author-name">{{ author.name }}{% if is_mine %} <span class="you">You</span>{% endif %}</h2>
+              <p class="faint">@{{ author.login }}</p>
+            </div>
+          </div>
+          <a class="round-btn" href="/team" aria-label="Open the team page">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+          </a>
+        </div>
+        <hr class="dotted">
+        <dl class="author-stats">
+          <div><dt>Commits</dt><dd class="display-num sm">{{ author_commits | length }}</dd></div>
+          <div><dt>Bugs proven</dt><dd class="display-num sm">{{ author_bugs | length }}</dd></div>
+        </dl>
+      </section>
+
+      {# Team activity: dot-capped bars, selected author in butter #}
+      {% if team.rows | length > 1 %}
+      <section class="glass card team-card" aria-labelledby="h-team">
+        <div class="card-head">
+          <div>
+            <h2 id="h-team" class="card-title">Team activity</h2>
+            <p class="hint">Commits per teammate</p>
+          </div>
+          <a class="round-btn" href="/team" aria-label="Open the team page">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+          </a>
+        </div>
+        {% set bits = [] %}{% for r in team.rows %}{% set _ = bits.append(r.name ~ ' ' ~ r.n) %}{% endfor %}
+        <div class="bars" role="img" aria-label="Commits per teammate: {{ bits | join(', ') }}">
+          {% for r in team.rows %}
+          <div class="bar-col">
+            <div class="bar{% if r.login == selected.author %} is-hi{% endif %}" style="--h: {{ ((r.n / team.top) if team.top else 0) | round(3) }}">{% if r.login == selected.author %}<span class="bar-tip">{{ r.n }}</span>{% endif %}</div>
+            <span class="bar-name">{{ r.name.split(' ')[0] }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="avatar-row" aria-label="Open bugs per teammate" role="group">
+          {% for r in team.rows %}
+          <span class="avatar-wrap" title="{{ r.name }}: {{ r.bugs }} proven {{ 'bug' if r.bugs == 1 else 'bugs' }}">
+            <img class="avatar sm" src="{{ r.avatar_url }}" alt="{{ r.name }}">
+            <span class="count-badge{% if r.bugs %} is-attention{% else %} is-fixed{% endif %}" aria-hidden="true">{{ r.bugs }}</span>
+          </span>
+          {% endfor %}
+        </div>
+        <p class="hint">Badges show bugs proven per person.</p>
+      </section>
+      {% endif %}
+      {% endif %}
+
+      {# Repeat mistake #}
+      {% if report and report.repeat_count and report.repeat_count >= 2 and bug %}
+      <section class="glass card repeat-card" aria-labelledby="h-repeat">
+        <span class="repeat-count" aria-hidden="true">{{ report.repeat_count }}x</span>
+        <div>
+          <p class="repeat-eyebrow">Repeat mistake</p>
+          <h2 id="h-repeat" class="repeat-title">{{ ordinal(report.repeat_count) }} time: {{ bug.name }}</h2>
+          {% if report.last_seen %}
+          <p class="muted">Last time was in commit
+            <a class="sha-link" href="?commit={{ report.last_seen.sha }}{% if mode_q %}&amp;mode={{ mode_q | urlencode }}{% endif %}"><code>{{ report.last_seen.sha }}</code></a>, {{ report.last_seen.time }}.</p>
+          {% endif %}
+        </div>
+      </section>
+      {% endif %}
+
+      {# Report summary and learning #}
+      {% if report and (show_report or show_learn) %}
+      <section class="glass card side-tabs" aria-label="{% if show_report and show_learn %}Report and learning{% elif show_learn %}Learn{% else %}Report summary{% endif %}">
+        {% if show_report and show_learn %}
+        <div class="segmented" role="tablist" aria-label="Choose a view">
+          <button class="seg-btn" type="button" role="tab" id="tab-report" aria-controls="panel-report" aria-selected="true">Report</button>
+          <button class="seg-btn" type="button" role="tab" id="tab-learn" aria-controls="panel-learn" aria-selected="false" tabindex="-1">Learn</button>
+        </div>
+        {% endif %}
+
+        {% if show_report %}
+        <div class="side-panel" id="panel-report" {% if show_learn %}role="tabpanel" aria-labelledby="tab-report" tabindex="0"{% endif %}>
+          <div class="card-head"><h2 class="card-title">Report summary</h2></div>
+          <dl class="summary">
+            <div><dt>Result</dt><dd><span class="badge {{ state_badge[state] }}">{{ state_labels[state] }}</span></dd></div>
+            {% if bug %}<div><dt>Bug</dt><dd>{{ bug.name }}</dd></div>{% endif %}
+            {% if report.file %}<div><dt>File</dt><dd><code>{{ report.file }}</code></dd></div>{% endif %}
+            {% if report.attack %}<div><dt>Attack before fix</dt><dd class="{{ 'is-bad' if report.attack.before == 'SUCCESS' else 'is-good' }}">{{ 'Worked' if report.attack.before == 'SUCCESS' else 'Failed' }}</dd></div>{% endif %}
+            <div><dt>{{ 'Attack after fix' if report.attack_after == 'BLOCKED' else 'Attack now' }}</dt><dd class="{{ 'is-good' if report.attack_after == 'BLOCKED' else 'is-bad' }}">{{ 'Blocked' if report.attack_after == 'BLOCKED' else 'Still works' }}</dd></div>
+            {% if report.tests %}<div><dt>Tests</dt><dd>{{ report.tests.passed }} of {{ report.tests.total }} pass</dd></div>{% endif %}
+            <div><dt>Pull request</dt><dd>
+              {% if report.pull_request %}
+                <a class="link" href="{{ report.pull_request.url }}">#{{ report.pull_request.number }}, {{ report.pull_request.status }}</a>
+              {% elif state == 'fixed' %}Not opened yet{% else %}None, no verified fix{% endif %}
+            </dd></div>
+          </dl>
+          <button class="btn btn-glass btn-block btn-small" type="button" data-action="copy-summary">Copy summary</button>
+        </div>
+        {% endif %}
+
+        {% if show_learn %}
+        <div class="side-panel" id="panel-learn" {% if show_report %}role="tabpanel" aria-labelledby="tab-learn" tabindex="0" hidden{% endif %}>
+          <div class="card-head"><h2 class="card-title">Learn how to avoid this</h2></div>
+          <ul class="learn-list">
+            {% for item in report.learning %}
+            <li>
+              <a class="learn-item" href="{{ item.url }}" target="_blank" rel="noopener">
+                <span class="learn-kind learn-kind-{{ item.kind | lower | replace(' ', '-') }}">{{ item.kind }}</span>
+                <span class="learn-title">{{ item.title }}</span>
+                <span class="learn-meta faint">{{ item.source }}{% if item.minutes %}, {{ item.minutes }} min{% endif %}</span>
+                <span class="sr-only">(opens in a new tab)</span>
+              </a>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      {# Project rules #}
+      <section class="glass card rules-card" aria-labelledby="h-rules">
+        <div class="card-head">
+          <div>
+            <h2 id="h-rules" class="card-title">Project rules</h2>
+            <p class="hint">Every scan attacks the code against these rules from your project brief.</p>
+          </div>
+          <a class="round-btn" href="/brief" aria-label="Edit brief">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+          </a>
+        </div>
+        <ol class="rules">
+          {% for r in active_rules %}
+          {% set broken = report and report.rule and report.rule == r.text %}
+          <li class="rule{% if broken %} is-broken{% endif %}">
+            <span class="rule-num" aria-hidden="true">{{ r.number or loop.index }}</span>
+            <span class="rule-text">{{ r.text }}{% if broken %} <span class="badge badge-attack">Broken here</span>{% endif %}</span>
+          </li>
+          {% else %}
+          <li class="hint">No active rules yet. Add a project brief to create them.</li>
+          {% endfor %}
+        </ol>
+        {% set off = (rules | length) - (active_rules | length) %}
+        {% if off > 0 %}<p class="hint">{{ off }} more {{ 'rule is' if off == 1 else 'rules are' }} turned off.</p>{% endif %}
+      </section>
+    </aside>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/pages/dashboard.js" defer></script>
+{% endblock %}

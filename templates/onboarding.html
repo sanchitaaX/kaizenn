@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+
+{% block title %}Set up SecureFix{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="/static/css/pages/onboarding.css">
+{% endblock %}
+
+{% block body_class %}page-onboarding{% endblock %}
+
+{% block nav %}
+<header class="ob-top">
+  <span class="brand">
+    <span class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+    </span>
+    SecureFix
+  </span>
+  <span class="ob-signed-in">
+    <img class="avatar sm" src="{{ user.avatar_url }}" alt="">
+    <span>Signed in as <strong>{{ user.login }}</strong></span>
+  </span>
+</header>
+{% endblock %}
+
+{% block content %}
+{% set repos = user.repos if user.repos else ([repo.full_name] if repo.full_name else []) %}
+{% set default_repo = repo.full_name if repo.full_name in repos else (repos[0] if repos else '') %}
+{% set role = user.role if user.role in ['student', 'professional'] else 'student' %}
+
+<div class="ob-wrap">
+  <section class="ob-panel glass panel" aria-labelledby="ob-title">
+    <div class="ob-head">
+      <p class="ob-kicker">Welcome, {{ user.name or user.login }}</p>
+      <h1 id="ob-title" class="display-title">Let's set up your <em>first scan</em></h1>
+      <p class="muted">Two quick choices and you're in. You can change both later from your profile.</p>
+    </div>
+
+    <ol class="ob-progress segbar" aria-label="Setup steps">
+      <li class="seg is-current" data-step="role" aria-current="step"><span class="ob-progress-num" aria-hidden="true">1</span><span class="ob-progress-text">Your role</span></li>
+      <li class="seg" data-step="repo"><span class="ob-progress-num" aria-hidden="true">2</span><span class="ob-progress-text">Repository</span></li>
+      <li class="seg" data-step="brief"><span class="ob-progress-num" aria-hidden="true">3</span><span class="ob-progress-text">Project brief</span></li>
+    </ol>
+
+    <form id="ob-form" class="ob-form" action="/api/onboarding" method="post" novalidate>
+      <!-- Step 1: role -->
+      <fieldset class="ob-step" data-step="role">
+        <legend class="ob-legend" id="role-legend">
+          <span class="ob-step-num display-num sm" aria-hidden="true">1</span>
+          <span class="ob-legend-title">How will you use SecureFix?</span>
+          <span class="hint">This picks the mode you start in.</span>
+        </legend>
+
+        <div class="ob-roles" role="radiogroup" aria-labelledby="role-legend" aria-required="true">
+          <label class="ob-option ob-role card-glow is-mint" data-role="student">
+            <input type="radio" name="role" value="student" {% if role == 'student' %}checked{% endif %} aria-describedby="role-student-desc">
+            <span class="ob-role-top">
+              <span class="ob-well ob-icon-student" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c3 2 9 2 12 0v-5"/><path d="M22 10v6"/></svg>
+                <i class="ob-well-dot"></i>
+              </span>
+              <span class="ob-check" aria-hidden="true"></span>
+            </span>
+            <span class="ob-option-body">
+              <span class="ob-option-title">Student</span>
+              <span class="ob-option-desc" id="role-student-desc">Starts in Learn mode. Each bug comes with a plain explanation of what went wrong, a short video and a practice lab.</span>
+            </span>
+            <span class="ob-preview ob-preview-learn" aria-hidden="true">
+              <span class="ob-pv-head"><span class="ob-pv-title">Learning card</span><span class="ob-pv-chip">Learn mode</span></span>
+              <span class="ob-pv-step is-done"><span class="check is-done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></span>What went wrong</span>
+              <span class="ob-pv-step is-done"><span class="check is-done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></span>Short video</span>
+              <span class="ob-pv-step"><span class="check"></span>Practice lab</span>
+              <span class="ob-pv-bar"><span class="seg seg-butter"></span><span class="seg seg-butter"></span><span class="seg seg-hatch"></span></span>
+            </span>
+          </label>
+
+          <label class="ob-option ob-role card-glow is-lavender" data-role="professional">
+            <input type="radio" name="role" value="professional" {% if role == 'professional' %}checked{% endif %} aria-describedby="role-pro-desc">
+            <span class="ob-role-top">
+              <span class="ob-well ob-icon-pro" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="3"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/><path d="M3 13h18"/></svg>
+                <i class="ob-well-dot"></i>
+              </span>
+              <span class="ob-check" aria-hidden="true"></span>
+            </span>
+            <span class="ob-option-body">
+              <span class="ob-option-title">Professional</span>
+              <span class="ob-option-desc" id="role-pro-desc">Starts in Report mode. You get proof of the attack, a verified patch as a pull request to approve, and a short report.</span>
+            </span>
+            <span class="ob-preview ob-preview-pr" aria-hidden="true">
+              <span class="ob-pv-head">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="M6 8.4v7.2"/><path d="M18 15.6V10a3 3 0 0 0-3-3h-3"/></svg>
+                <span class="ob-pv-title">Pull request</span>
+                <span class="ob-pv-chip">Into {{ repo.default_branch }}</span>
+              </span>
+              <span class="ob-pv-diff"><span class="ob-pv-line is-del"></span><span class="ob-pv-line is-add"></span><span class="ob-pv-line is-add short"></span></span>
+              <span class="ob-pv-tags">
+                <span class="ob-pv-tag is-attack">Attack proven</span>
+                <span class="ob-pv-tag is-pass">Patch verified</span>
+              </span>
+              <span class="ob-pv-approve">Approve</span>
+            </span>
+          </label>
+        </div>
+
+        <p class="ob-mode-note" id="ob-mode-note" aria-live="polite">
+          You'll start in <strong data-mode-label>{{ 'Report mode' if role == 'professional' else 'Learn mode' }}</strong>.
+        </p>
+      </fieldset>
+
+      <!-- Step 2: repository -->
+      <fieldset class="ob-step" data-step="repo">
+        <legend class="ob-legend" id="repo-legend">
+          <span class="ob-step-num display-num sm" aria-hidden="true">2</span>
+          <span class="ob-legend-title">Which repository should we watch?</span>
+          <span class="hint">We sync its commits and scan each one.{% if repos %} {{ repos|length }} available.{% endif %}</span>
+        </legend>
+
+        {% if not repos %}
+        <div class="field ob-repo-manual">
+          <label class="label" for="repo-name">We couldn't load your repositories. Type one in the owner/name form.</label>
+          <input class="input" type="text" id="repo-name" name="repo" placeholder="carvelle/marks-portal"
+                 autocomplete="off" spellcheck="false" required pattern="[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+">
+        </div>
+        {% endif %}
+
+        <div class="ob-repos" role="radiogroup" aria-labelledby="repo-legend" aria-required="true"{% if not repos %} hidden{% endif %}>
+          {% for r in repos %}
+          <label class="ob-option ob-repo">
+            <input type="radio" name="repo" value="{{ r }}" {% if r == default_repo %}checked{% endif %}>
+            <span class="ob-repo-icon task-well is-light" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5v-15z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3"/><path d="M9 7h6"/></svg>
+            </span>
+            <span class="ob-option-body">
+              <span class="ob-repo-name">{% set parts = r.split('/') %}{% if parts|length > 1 %}<span class="faint">{{ parts[0] }} /</span> {{ parts[1:]|join('/') }}{% else %}{{ r }}{% endif %}</span>
+              {% if r == repo.full_name %}
+              <span class="hint">Default branch {{ repo.default_branch }}</span>
+              {% endif %}
+            </span>
+            <span class="ob-check" aria-hidden="true"></span>
+          </label>
+          {% endfor %}
+        </div>
+
+        <p class="hint ob-repo-hint">Only repositories your GitHub account can access are listed.</p>
+      </fieldset>
+
+      <!-- Step 3: optional brief -->
+      <fieldset class="ob-step" data-step="brief">
+        <legend class="ob-legend">
+          <span class="ob-step-num display-num sm" aria-hidden="true">3</span>
+          <span class="ob-legend-title">Describe your app <span class="ob-optional">Optional</span></span>
+          <span class="hint">A short project brief lets SecureFix catch logic bugs that scanners miss, like a student seeing someone else's marks.</span>
+        </legend>
+
+        <label class="ob-brief-toggle card-glow is-butter">
+          <span class="ob-well ob-icon-brief" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>
+          </span>
+          <span class="ob-option-body">
+            <span class="ob-option-title">Write the project brief next</span>
+            <span class="ob-option-desc">Takes about two minutes. You can also do it later from the Project brief tab.</span>
+          </span>
+          <span class="switch">
+            <input type="checkbox" name="brief_next" id="brief-next" value="1" checked>
+            <span></span>
+          </span>
+        </label>
+      </fieldset>
+
+      <div class="ob-actions">
+        <p class="hint ob-actions-hint" id="ob-dest" aria-live="polite">Next you'll go to the project brief.</p>
+        <button class="btn btn-accent btn-lg" type="submit" id="ob-submit">
+          <span data-label>Finish setup</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+        </button>
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/pages/onboarding.js" defer></script>
+{% endblock %}

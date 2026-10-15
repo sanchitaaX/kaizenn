@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block title %}Learning | SecureFix{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="/static/css/pages/learning.css">
+{% endblock %}
+
+{% block content %}
+<div class="page page-narrow">
+  <header class="page-head">
+    <div>
+      <h1 class="page-title">Learning</h1>
+      <p class="page-sub">Mistakes are how this gets learned. Here is what to read, watch and try for each one.</p>
+    </div>
+  </header>
+
+  <div id="learning" class="stack-lg" aria-live="polite" aria-busy="true">
+    <div class="card"><div class="stack"><div class="skeleton skeleton-line-lg"></div><div class="skeleton skeleton-line-sm"></div></div></div>
+  </div>
+
+  {# Icon sources cloned by the script #}
+  <template id="ico-play">{{ icon('play', 18) }}</template>
+  <template id="ico-guide">{{ icon('book', 18) }}</template>
+  <template id="ico-lab">{{ icon('spark', 18) }}</template>
+  <template id="ico-external">{{ icon('external', 14) }}</template>
+  <template id="ico-arrow">{{ icon('arrow', 14) }}</template>
+  <template id="ico-alert">{{ icon('alert', 16) }}</template>
+  <template id="ico-book-lg">{{ icon('book', 18) }}</template>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/pages/learning.js" defer></script>
+{% endblock %}

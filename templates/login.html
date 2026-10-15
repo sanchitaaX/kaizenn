@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+
+{% block title %}Sign in to SecureFix{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="/static/css/pages/login.css">
+{% endblock %}
+
+{% block body_class %}login-body{% endblock %}
+
+{# The login screen has no top navigation. #}
+{% block nav %}{% endblock %}
+
+{% block content %}
+{# The demo card replays the SQL injection run, so pick that commit from the data. #}
+{% set sqli_commits = commits | selectattr('bug_type', 'equalto', 'SQL_INJECTION') | list %}
+{% set demo = sqli_commits[0] if sqli_commits else {'sha': 'e41b9d2', 'author': 'dhruv-carvelle', 'message': 'Add student name search to admin panel'} %}
+{% set demo_member = member(demo.author) %}
+{% set demo_bug = bug_types.get('SQL_INJECTION') or {'name': 'SQL injection', 'plain': 'Typed text can rewrite the database query.'} %}
+{% set is_pro = user.role == 'professional' %}
+
+<div class="login">
+  <header class="login-head">
+    <a class="brand" href="/" aria-label="SecureFix home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+      </span>
+      SecureFix
+    </a>
+  </header>
+
+  <div class="login-grid">
+    <!-- Left: pitch and the one action -->
+    <section class="login-hero" aria-labelledby="login-title">
+      <span class="login-eyebrow">
+        <span class="dot dot-fixed" aria-hidden="true"></span>
+        Security checks you can trust
+      </span>
+
+      <h1 id="login-title" class="display-title login-title">
+        Scanners say maybe.
+        <span class="login-title-accent">SecureFix proves it.</span>
+      </h1>
+
+      <p class="login-lede">
+        Every commit gets a real attack in a safe sandbox. If the attack works, SecureFix writes a patch,
+        then shows the attack is blocked and your tests still pass.
+      </p>
+
+      <div class="login-action">
+        <a class="btn btn-github btn-lg login-cta" href="/auth/login" id="signin">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.39-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z"/></svg>
+          <span class="login-cta-label">Sign in with GitHub</span>
+        </a>
+        <p class="login-hint">
+          Your GitHub username links you to your commits automatically. No new password to remember.
+        </p>
+      </div>
+
+      {# Numbers come from the demo repository's commits, never typed in. #}
+      {% set total = commits | length %}
+      {% if total %}
+      {% set proven = commits | selectattr('bug_type') | list | length %}
+      {% set verified = counts.get('fixed', 0) %}
+      {% set seg_order = [('fixed', 'seg-fixed'), ('attention', 'seg-attention'), ('safe', 'seg-safe'), ('new', 'seg-new')] %}
+      {% set label_parts = [] %}
+      {% for key, cls in seg_order %}{% if counts.get(key, 0) %}{% set _ = label_parts.append(counts[key] ~ ' ' ~ (state_labels[key] | lower)) %}{% endif %}{% endfor %}
+      <section class="login-stats card-glow is-butter" aria-labelledby="stats-title">
+        <h2 id="stats-title" class="login-stats-title">A sample run on the demo project</h2>
+        <div class="login-stats-nums">
+          <div class="stat">
+            <span class="stat-label">
+              <span class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M3 12h5.8M15.2 12H21"/></svg></span>
+              Commits checked
+            </span>
+            <span class="display-num">{{ total }}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">
+              <span class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg></span>
+              Bugs proven
+            </span>
+            <span class="display-num">{{ proven }}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">
+              <span class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg></span>
+              Fixes verified
+            </span>
+            <span class="display-num">{{ verified }}</span>
+          </div>
+        </div>
+        <hr class="dotted">
+        <div class="segbar login-segbar" role="img" aria-label="Commit results: {{ label_parts | join(', ') }}">
+          {% for key, cls in seg_order %}{% if counts.get(key, 0) %}
+          <div class="seg {{ cls }}" style="flex: {{ counts[key] }}">{{ counts[key] }}</div>
+          {% endif %}{% endfor %}
+        </div>
+        <ul class="login-legend" aria-hidden="true">
+          {% for key, cls in seg_order %}{% if counts.get(key, 0) %}
+          <li><span class="dot dot-{{ key }}"></span>{{ state_labels[key] }}</li>
+          {% endif %}{% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+
+      {% set value_groups = [
+        {'id': 'students', 'title': 'For students',
+         'icon': '<path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c3 2 9 2 12 0v-5"/>',
+         'points': ['A plain-English note on what went wrong',
+                    'A short video and a hands-on lab for each bug',
+                    'A heads-up when you repeat a past mistake']},
+        {'id': 'teams', 'title': 'For teams',
+         'icon': '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 4.8a3.2 3.2 0 0 1 0 6.4"/><path d="M18 14.8c1.9.6 3 2.4 3 5.2"/>',
+         'points': ['Only bugs with a working attack get reported',
+                    'Each verified fix arrives as a pull request',
+                    'Checks code against your own project rules']},
+      ] %}
+      {# Lead with the group that matches the current mode. #}
+      <div class="login-values">
+        {% for group in (value_groups | reverse | list if is_pro else value_groups) %}
+        <section class="login-value card-glow {{ 'is-mint' if group.id == 'students' else 'is-lavender' }}" aria-labelledby="value-{{ group.id }}">
+          <h2 id="value-{{ group.id }}" class="login-value-title">
+            <span class="login-value-icon login-value-icon--{{ group.id }}" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">{{ group.icon | safe }}</svg>
+            </span>
+            {{ group.title }}
+          </h2>
+          <ul class="login-points">
+            {% for point in group.points %}<li>{{ point }}</li>{% endfor %}
+          </ul>
+        </section>
+        {% endfor %}
+      </div>
+    </section>
+
+    <!-- Right: demo card that plays the proof rail once -->
+    <section class="login-demo glass panel" aria-labelledby="demo-title" data-demo>
+      <div class="demo-head">
+        <div class="demo-head-text">
+          <h2 id="demo-title" class="demo-title">See one commit get checked</h2>
+          <p class="demo-sub muted">How SecureFix handles one risky commit, start to finish.</p>
+        </div>
+        <button class="btn btn-glass demo-replay" type="button" data-demo-replay>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+          Play again
+        </button>
+      </div>
+
+      <div class="demo-commit inset">
+        <img class="avatar sm" src="{{ demo_member.avatar_url }}" alt="">
+        <div class="demo-commit-text">
+          <p class="demo-commit-msg">{{ demo.message }}</p>
+          <p class="demo-commit-meta">
+            <code>{{ demo.sha }}</code>
+            <span>by {{ demo.author }}</span>
+          </p>
+        </div>
+        <span class="badge badge-new" data-demo-badge>New</span>
+      </div>
+
+      <ol class="proof-rail login-rail" data-demo-rail style="--progress: 0" aria-label="Proof steps">
+        <li class="proof-step" data-step="find" data-status="idle">
+          <span class="proof-orb" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
+          </span>
+          <span class="proof-name">Find</span>
+          <span class="proof-note" data-note>Waiting</span>
+        </li>
+        <li class="proof-step" data-step="hack" data-status="idle">
+          <span class="proof-orb" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>
+          </span>
+          <span class="proof-name">Hack</span>
+          <span class="proof-note" data-note>Waiting</span>
+        </li>
+        <li class="proof-step" data-step="fix" data-status="idle">
+          <span class="proof-orb" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0 5 5L21 13l-8 8-3-3 1.3-1.3a4 4 0 0 0-5-5L3 10l4-4 3 3 1.3-1.3a4 4 0 0 0 3.4-1.4z"/></svg>
+          </span>
+          <span class="proof-name">Fix</span>
+          <span class="proof-note" data-note>Waiting</span>
+        </li>
+        <li class="proof-step" data-step="prove" data-status="idle">
+          <span class="proof-orb" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+          </span>
+          <span class="proof-name">Prove</span>
+          <span class="proof-note" data-note>Waiting</span>
+        </li>
+      </ol>
+
+      <div class="card-ink login-ink" data-demo-tasks>
+        <div class="card-head login-ink-head">
+          <h3 class="card-title">What happens to the commit</h3>
+          <span class="login-ink-count muted" aria-hidden="true"><span data-demo-done>0</span> of 4</span>
+        </div>
+        <ul class="task-list">
+          <li class="task login-task" data-task="find" data-status="idle">
+            <span class="task-well" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg></span>
+            <div class="task-body">
+              <p class="task-title">Find the risky code</p>
+              <p class="task-meta">Reads the commit for unsafe patterns</p>
+            </div>
+            <span class="check" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>
+          </li>
+          <li class="task login-task" data-task="hack" data-status="idle">
+            <span class="task-well" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg></span>
+            <div class="task-body">
+              <p class="task-title">Try a real attack</p>
+              <p class="task-meta">Runs it in a safe sandbox</p>
+            </div>
+            <span class="check" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>
+          </li>
+          <li class="task login-task" data-task="fix" data-status="idle">
+            <span class="task-well" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0 5 5L21 13l-8 8-3-3 1.3-1.3a4 4 0 0 0-5-5L3 10l4-4 3 3 1.3-1.3a4 4 0 0 0 3.4-1.4z"/></svg></span>
+            <div class="task-body">
+              <p class="task-title">Write a patch</p>
+              <p class="task-meta">Changes only what the bug needs</p>
+            </div>
+            <span class="check" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>
+          </li>
+          <li class="task login-task" data-task="prove" data-status="idle">
+            <span class="task-well" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg></span>
+            <div class="task-body">
+              <p class="task-title">Prove it worked</p>
+              <p class="task-meta">Attack blocked, tests still pass</p>
+            </div>
+            <span class="check" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="demo-details">
+        <div class="demo-block demo-block--attack" data-reveal="hack">
+          <p class="demo-block-title">
+            <span class="badge badge-attack">Attack worked</span>
+            <span class="muted">{{ demo_bug.name }}</span>
+          </p>
+          <p class="demo-block-text">{{ demo_bug.plain }}</p>
+          <pre class="demo-evidence"><code>GET /admin/search?q=' OR '1'='1
+200 OK, 50 students returned (expected 0)</code></pre>
+        </div>
+
+        <div class="demo-block" data-reveal="fix">
+          <p class="demo-block-title">
+            <span class="badge badge-scanning">Patch written</span>
+            <span class="muted">app/admin.py</span>
+          </p>
+          <div class="diff demo-diff" role="group" aria-label="Code change">
+            <span class="diff-line diff-del">- sql = f"SELECT * FROM students WHERE name LIKE '%{q}%'"</span>
+            <span class="diff-line diff-add">+ sql = "SELECT * FROM students WHERE name LIKE ?"</span>
+          </div>
+        </div>
+
+        <div class="demo-block demo-block--pass" data-reveal="prove">
+          <p class="demo-block-title">
+            <span class="badge badge-fixed">Attack blocked</span>
+            <span class="badge badge-fixed">12 of 12 tests pass</span>
+          </p>
+          <p class="demo-block-text">The same attack now returns nothing, and nothing else broke.</p>
+        </div>
+      </div>
+
+      <p class="sr-only" aria-live="polite" data-demo-status></p>
+    </section>
+  </div>
+
+  <footer class="login-foot">
+    <p>If SecureFix can't prove a bug with a working attack, it doesn't report it.</p>
+  </footer>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/pages/login.js" defer></script>
+{% endblock %}

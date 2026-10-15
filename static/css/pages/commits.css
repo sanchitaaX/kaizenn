@@ -1,0 +1,52 @@
+/* Commits tab. Layout only; everything else comes from app.css. */
+
+.filters { display: flex; flex-direction: column; gap: var(--s-3); margin-bottom: var(--s-5); }
+.filter-group { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+
+.filter-pill {
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  min-height: 32px; padding: 0 var(--s-3);
+  border-radius: var(--r-pill); border: 1px solid var(--hairline);
+  background: var(--surface); color: var(--ink-soft);
+  font: inherit; font-size: var(--fs-13); font-weight: 600; cursor: pointer;
+  transition: background-color .15s, border-color .15s, color .15s;
+}
+.filter-pill:has(.avatar) { padding-left: 3px; }
+.filter-pill:hover { background: var(--surface-soft); color: var(--ink); }
+.filter-pill[aria-pressed="true"] { background: var(--accent-tint); border-color: var(--accent-tint-2); color: var(--accent-ink); }
+.filter-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.filter-pill .avatar { width: 24px; height: 24px; }
+
+.commit-row {
+  display: flex; align-items: center; gap: var(--s-4);
+  padding: var(--s-4) var(--s-5);
+}
+.commit-row + .commit-row { border-top: 1px solid var(--hairline); }
+.commit-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--s-2); }
+.commit-message {
+  font-size: var(--fs-15); font-weight: 600; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.commit-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-4);
+  font-size: var(--fs-13); color: var(--ink-soft);
+}
+.commit-meta-item { display: inline-flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.commit-meta .avatar { width: 20px; height: 20px; font-size: var(--fs-12); }
+.commit-meta svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.commit-sha { font-family: var(--mono); font-size: var(--fs-12); color: var(--ink-soft); }
+.commit-end { display: flex; align-items: center; gap: var(--s-4); flex: none; }
+.commit-end .btn { white-space: nowrap; }
+.commit-end .badge svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+.commit-row .skeleton { height: 14px; }
+.commit-row .skeleton-line-sm { width: 40%; }
+
+.commit-list .empty { background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md); }
+.commit-list .empty .icon-tile svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+
+@media (max-width: 720px) {
+  .commit-row { flex-direction: column; align-items: stretch; gap: var(--s-3); padding: var(--s-4); }
+  .commit-message { white-space: normal; }
+  .commit-end { justify-content: space-between; }
+}

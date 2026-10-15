@@ -1,0 +1,59 @@
+{#- Shared macros. Import with:
+    {% from "_macros.html" import icon, badge, avatar, empty_state %} -#}
+
+{#- Inline icon. name: check alert spark git-commit repo paperclip send arrow user book play lock refresh external x chevron
+    size: pixels (default 16). Inherits colour from the parent via currentColor. -#}
+{% macro icon(name, size=16) -%}
+<svg class="icon" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+{%- if name == 'check' %}<path d="m5 12.5 4.5 4.5L19 7.5"/>
+{%- elif name == 'alert' %}<path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4.5"/><path d="M12 17h.01"/>
+{%- elif name == 'spark' %}<path d="M12 3.5 13.9 9l5.6 1.9-5.6 1.9L12 18.5l-1.9-5.7L4.5 10.9 10.1 9z"/><path d="M18.5 3.5v3"/><path d="M17 5h3"/>
+{%- elif name == 'git-commit' %}<circle cx="12" cy="12" r="3.5"/><path d="M3 12h5.5"/><path d="M15.5 12H21"/>
+{%- elif name == 'repo' %}<path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v15H7.5A2.5 2.5 0 0 0 5 20.5z"/><path d="M5 20.5A2.5 2.5 0 0 0 7.5 21H19v-3"/>
+{%- elif name == 'paperclip' %}<path d="m20 11-8.2 8.2a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L15 6.7"/>
+{%- elif name == 'send' %}<path d="M12 19V5"/><path d="m5.5 11.5 6.5-6.5 6.5 6.5"/>
+{%- elif name == 'arrow' %}<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>
+{%- elif name == 'user' %}<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.6 3.7-5.5 7-5.5s6.2 1.9 7 5.5"/>
+{%- elif name == 'book' %}<path d="M4 5.5C4 4.7 4.7 4 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5c0-.8-.7-1.5-1.5-1.5H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/>
+{%- elif name == 'play' %}<circle cx="12" cy="12" r="9"/><path d="m10.5 8.8 4.5 3.2-4.5 3.2z"/>
+{%- elif name == 'lock' %}<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>
+{%- elif name == 'refresh' %}<path d="M20 11a8 8 0 0 0-14.3-4.5L4 8.5"/><path d="M4 4v4.5h4.5"/><path d="M4 13a8 8 0 0 0 14.3 4.5L20 15.5"/><path d="M20 20v-4.5h-4.5"/>
+{%- elif name == 'external' %}<path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>
+{%- elif name == 'x' %}<path d="M6 6l12 12"/><path d="M18 6 6 18"/>
+{%- elif name == 'chevron' %}<path d="m9 6 6 6-6 6"/>
+{%- endif -%}
+</svg>
+{%- endmacro %}
+
+{#- State badge. state: new | safe | fixed | attention. label: optional override text. -#}
+{% macro badge(state, label=none) -%}
+{%- set labels = {'new': 'New', 'safe': 'Safe', 'fixed': 'Fixed', 'attention': 'Needs attention'} -%}
+{%- set key = state if state in labels else 'new' -%}
+<span class="badge badge-{{ key }}">
+  {%- if key in ['safe', 'fixed'] %}{{ icon('check', 12) }}{% elif key == 'attention' %}{{ icon('alert', 12) }}{% endif -%}
+  {{ label or labels[key] }}
+</span>
+{%- endmacro %}
+
+{#- Avatar. member: dict/object with avatar_url and name (or login). size: sm | md | lg | xl.
+    Falls back to initials when there is no avatar_url. -#}
+{% macro avatar(member, size='md') -%}
+{%- set who = (member.name or member.login or '?') if member else '?' -%}
+{%- if member and member.avatar_url -%}
+<img class="avatar avatar-{{ size }}" src="{{ member.avatar_url }}" alt="" loading="lazy">
+{%- else -%}
+<span class="avatar avatar-{{ size }}" aria-hidden="true">{{ who[:1] | upper }}</span>
+{%- endif -%}
+{%- endmacro %}
+
+{#- Empty state. action: optional dict {label, href} rendered as a secondary pill button.
+    Can also be used with {% call empty_state(...) %}extra html{% endcall %}. -#}
+{% macro empty_state(title, text='', action=none, icon_name='spark') -%}
+<div class="empty">
+  <span class="icon-tile">{{ icon(icon_name, 18) }}</span>
+  <h3 class="empty-title">{{ title }}</h3>
+  {% if text %}<p class="empty-text">{{ text }}</p>{% endif %}
+  {% if action %}<a class="btn btn-secondary btn-sm" href="{{ action.href }}">{{ action.label }}</a>{% endif %}
+  {% if caller is defined %}{{ caller() }}{% endif %}
+</div>
+{%- endmacro %}

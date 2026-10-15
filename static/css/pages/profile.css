@@ -1,0 +1,31 @@
+/* Profile: one calm column, sections divided by hairlines. */
+
+.pf { padding-top: var(--s-6); }
+.pf-title { margin-bottom: var(--s-5); }
+
+.pf-section { padding: var(--s-5) 0; border-top: 1px solid var(--hairline); }
+.pf-heading { font-size: var(--fs-17); }
+.pf-lede { margin: var(--s-1) 0 var(--s-2); font-size: var(--fs-13); }
+
+/* Account */
+.pf-account { display: flex; align-items: center; gap: var(--s-4); }
+.pf-id { flex: 1; min-width: 0; }
+.pf-name { font-size: var(--fs-22); font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.pf-connected { display: flex; align-items: center; gap: var(--s-1); margin-top: var(--s-1); }
+.pf-connected .icon { color: var(--accent-ink); }
+
+/* A label on the left, a control on the right */
+.pf-toggle { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); padding: var(--s-3) 0; }
+.pf-toggle-text { min-width: 0; }
+.pf-lede + .pf-toggle { padding-top: var(--s-3); }
+.pf-toggle .switch { flex: none; }
+
+.pf-repos { margin-top: var(--s-3); }
+.pf-repos .row-title { font-weight: 500; }
+.pf-section > .muted { margin-top: var(--s-3); }
+
+@media (max-width: 560px) {
+  .pf-account { flex-wrap: wrap; }
+  .pf-account .btn { margin-left: calc(72px + var(--s-4)); }
+  .pf-toggle { align-items: flex-start; }
+}

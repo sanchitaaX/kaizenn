@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, avatar %}
+
+{% block title %}Profile | SecureFix{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="/static/css/pages/profile.css">
+{% endblock %}
+
+{% block content %}
+{% set repos = user.repos or [] %}
+<div class="page page-narrow pf">
+  <h1 class="page-title pf-title">Profile</h1>
+
+  <section class="pf-section pf-account" aria-label="Account">
+    {{ avatar(user, 'xl') }}
+    <div class="pf-id">
+      <p class="pf-name">{{ user.name or user.login }}</p>
+      <p class="muted">@{{ user.login }}</p>
+      <p class="pf-connected small muted">
+        {{ icon('check', 14) }}
+        {% if github_connected %}GitHub connected{% else %}Demo account, no GitHub connection{% endif %}
+      </p>
+    </div>
+    <a class="btn btn-secondary" href="/auth/logout">Sign out</a>
+  </section>
+
+  <section class="pf-section" aria-labelledby="pf-modes-title">
+    <h2 class="pf-heading" id="pf-modes-title">How should SecureFix answer you?</h2>
+    <p class="muted pf-lede">Keep at least one on.</p>
+
+    <div class="pf-toggle">
+      <div class="pf-toggle-text">
+        <p class="strong" id="learn-label">Learn mode</p>
+        <p class="muted small" id="learn-hint">Explains why it happened and links lessons.</p>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="learn-mode" data-mode="learn_mode" aria-labelledby="learn-label" aria-describedby="learn-hint"{% if user.learn_mode %} checked{% endif %}>
+        <span class="switch-track"></span>
+      </label>
+    </div>
+
+    <div class="pf-toggle">
+      <div class="pf-toggle-text">
+        <p class="strong" id="report-label">Report mode</p>
+        <p class="muted small" id="report-hint">Short proof and a pull request.</p>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="report-mode" data-mode="report_mode" aria-labelledby="report-label" aria-describedby="report-hint"{% if user.report_mode %} checked{% endif %}>
+        <span class="switch-track"></span>
+      </label>
+    </div>
+  </section>
+
+  <section class="pf-section" aria-labelledby="pf-role-title">
+    <div class="pf-toggle">
+      <div class="pf-toggle-text">
+        <h2 class="pf-heading" id="pf-role-title">Role</h2>
+        <p class="muted small">Sets the default modes.</p>
+      </div>
+      <div class="segmented" role="group" aria-labelledby="pf-role-title" id="role-picker">
+        <button type="button" data-role="student" aria-pressed="{{ 'true' if user.role != 'professional' else 'false' }}">Student</button>
+        <button type="button" data-role="professional" aria-pressed="{{ 'true' if user.role == 'professional' else 'false' }}">Professional</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="pf-section" aria-labelledby="pf-repos-title">
+    <h2 class="pf-heading" id="pf-repos-title">Repositories you have checked</h2>
+    {% if repos %}
+    <ul class="list pf-repos">
+      {% for name in repos %}
+      <li>
+        <a class="list-row" href="https://github.com/{{ name }}" target="_blank" rel="noopener noreferrer">
+          <span class="icon-tile">{{ icon('repo', 16) }}</span>
+          <span class="row-main"><span class="row-title">{{ name }}</span></span>
+          <span class="row-end">{{ icon('external', 14) }}<span class="sr-only">Open on GitHub</span></span>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">None yet. Pick a repository in the <a href="/chat">chat</a> to start.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/pages/profile.js" defer></script>
+{% endblock %}

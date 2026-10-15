@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+
+{% block title %}Project brief - SecureFix{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="/static/css/pages/brief.css">
+{% endblock %}
+
+{% block content %}
+{% set learn = user.learn_mode %}
+{% set enabled_count = rules | selectattr("enabled") | list | length %}
+{% set total_rules = rules | length %}
+{% set ns = namespace(hits=0) %}
+{% for r in rules %}{% set ns.hits = ns.hits + (r.hits or 0) %}{% endfor %}
+{% set has_summary = (brief.summary or '') | trim | length > 0 %}
+{% set has_users = (brief.users or '') | trim | length > 0 %}
+{% set has_permissions = (brief.permissions or '') | trim | length > 0 %}
+<div class="page brief-page">
+
+  {# ---------- Headline ---------- #}
+  <header class="brief-hero">
+    <div class="brief-hero-text">
+      <h1 id="brief-form-title" class="display-title brief-title">Project brief</h1>
+      <p class="muted brief-lead">Describe your app in plain words. SecureFix turns it into rules and attacks every commit against them.</p>
+    </div>
+    <div class="brief-hero-progress">
+      <p class="brief-progress-label">Questions answered</p>
+      <ul class="segbar brief-progress" aria-label="Brief progress">
+        <li class="seg {% if has_summary %}seg-butter{% else %}seg-hatch{% endif %}" data-progress="summary">Summary<span class="sr-only">{% if has_summary %}, filled in{% else %}, not filled in yet{% endif %}</span></li>
+        <li class="seg {% if has_users %}seg-butter{% else %}seg-hatch{% endif %}" data-progress="users">Users<span class="sr-only">{% if has_users %}, filled in{% else %}, not filled in yet{% endif %}</span></li>
+        <li class="seg {% if has_permissions %}seg-butter{% else %}seg-hatch{% endif %}" data-progress="permissions">Permissions<span class="sr-only">{% if has_permissions %}, filled in{% else %}, not filled in yet{% endif %}</span></li>
+      </ul>
+    </div>
+  </header>
+
+  <div class="brief-layout">
+
+    {# ---------- Left: sections list ---------- #}
+    <aside class="brief-side glass panel" aria-label="Brief sections">
+      <div class="brief-side-head">
+        <p class="faint brief-eyebrow">Project</p>
+        <p class="brief-repo">{{ repo.full_name }}</p>
+        <p class="hint" id="brief-updated">{% if brief.updated %}Last saved {{ brief.updated }}{% else %}Not saved yet{% endif %}</p>
+      </div>
+
+      <button class="btn btn-primary btn-block" type="submit" form="brief-form" data-generate>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>
+        <span data-generate-label>Save and generate rules</span>
+      </button>
+
+      <nav class="brief-steps" aria-label="Jump to section">
+        <a class="brief-step" href="#field-summary" data-section="summary" aria-current="true">
+          <span class="brief-step-num" aria-hidden="true">1</span>
+          <span class="brief-step-text">
+            <span class="brief-step-title">What the app does</span>
+            <span class="brief-step-state{% if has_summary %} is-done{% endif %}" data-state-for="summary">{% if brief.summary %}Filled in{% else %}Not filled in yet{% endif %}</span>
+          </span>
+        </a>
+        <a class="brief-step" href="#field-users" data-section="users">
+          <span class="brief-step-num" aria-hidden="true">2</span>
+          <span class="brief-step-text">
+            <span class="brief-step-title">Who uses it</span>
+            <span class="brief-step-state{% if has_users %} is-done{% endif %}" data-state-for="users">{% if brief.users %}Filled in{% else %}Not filled in yet{% endif %}</span>
+          </span>
+        </a>
+        <a class="brief-step" href="#field-permissions" data-section="permissions">
+          <span class="brief-step-num" aria-hidden="true">3</span>
+          <span class="brief-step-text">
+            <span class="brief-step-title">Who can do what</span>
+            <span class="brief-step-state{% if has_permissions %} is-done{% endif %}" data-state-for="permissions">{% if brief.permissions %}Filled in{% else %}Not filled in yet{% endif %}</span>
+          </span>
+        </a>
+        <a class="brief-step" href="#rules-panel" data-section="rules">
+          <span class="brief-step-num" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z"/></svg>
+          </span>
+          <span class="brief-step-text">
+            <span class="brief-step-title">Security rules</span>
+            <span class="brief-step-state" data-rules-count-short>{{ enabled_count }} of {{ total_rules }} on</span>
+          </span>
+        </a>
+      </nav>
+
+      <div class="brief-side-note inset">
+        <p class="brief-side-note-title">Why a brief?</p>
+        <p class="muted">Scanners only see code patterns. Your brief tells SecureFix what the app is supposed to allow, so it can catch logic bugs like one student opening another student's marks.</p>
+      </div>
+    </aside>
+
+    {# ---------- Centre: the brief form ---------- #}
+    <section class="brief-main card-glow" aria-labelledby="brief-form-title">
+      <div class="card-head brief-main-head">
+        <p class="muted brief-main-sub">Three short questions. Plain words are fine.</p>
+        <div class="brief-main-aside">
+          <span class="brief-dirty" data-dirty hidden>Unsaved changes</span>
+          <a class="round-btn" href="#rules-panel" aria-label="Jump to security rules">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+          </a>
+        </div>
+      </div>
+
+      <form id="brief-form" class="brief-form" novalidate>
+        <div class="field brief-field" id="field-summary" data-section-target="summary">
+          <label class="label" for="brief-summary">
+            <span class="brief-field-num" aria-hidden="true">1</span>
+            What does the app do?
+          </label>
+          <p class="hint" id="brief-summary-hint">One or two sentences. What is it for, and what data does it keep?</p>
+          <textarea class="textarea" id="brief-summary" name="summary" rows="3" maxlength="600" required
+            aria-describedby="brief-summary-hint brief-summary-count"
+            placeholder="A marks portal for our college. Students see their marks, teachers enter them.">{{ brief.summary or '' }}</textarea>
+          <p class="hint brief-count" id="brief-summary-count" data-count-for="brief-summary" aria-live="off"></p>
+        </div>
+
+        <hr class="dotted" aria-hidden="true">
+
+        <div class="field brief-field" id="field-users" data-section-target="users">
+          <label class="label" for="brief-users">
+            <span class="brief-field-num" aria-hidden="true">2</span>
+            Who uses it?
+          </label>
+          <p class="hint" id="brief-users-hint">List the kinds of users, separated by commas.</p>
+          <input class="input" id="brief-users" name="users" type="text" maxlength="200" required autocomplete="off"
+            aria-describedby="brief-users-hint"
+            placeholder="Student, Teacher, Admin" value="{{ brief.users or '' }}">
+          <ul class="brief-roles" data-roles aria-label="User types">
+            {% for role in (brief.users or '').split(',') if role.strip() %}
+            <li class="brief-role">{{ role.strip() }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+
+        <hr class="dotted" aria-hidden="true">
+
+        <div class="field brief-field" id="field-permissions" data-section-target="permissions">
+          <label class="label" for="brief-permissions">
+            <span class="brief-field-num" aria-hidden="true">3</span>
+            Who can do what?
+          </label>
+          <p class="hint" id="brief-permissions-hint">Say what each user type is allowed to see and change. This is where most real bugs hide.</p>
+          <textarea class="textarea" id="brief-permissions" name="permissions" rows="5" maxlength="1200" required
+            aria-describedby="brief-permissions-hint brief-permissions-count"
+            placeholder="Students see only their own marks. Only admins can delete users.">{{ brief.permissions or '' }}</textarea>
+          <p class="hint brief-count" id="brief-permissions-count" data-count-for="brief-permissions" aria-live="off"></p>
+        </div>
+
+        {% if learn %}
+        <div class="brief-tip card-glow is-butter" role="note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg>
+          <p><strong>Tip:</strong> write one sentence per permission, like "Teachers can edit marks for their own classes". Each sentence usually becomes one rule.</p>
+        </div>
+        {% endif %}
+
+        <div class="brief-actions">
+          <p class="hint brief-error" data-form-error role="alert" hidden></p>
+          <span class="spacer"></span>
+          <button class="btn btn-glass" type="reset" data-reset>Undo changes</button>
+          <button class="btn btn-accent" type="submit" data-generate>
+            <span data-generate-label>Save and generate rules</span>
+          </button>
+        </div>
+      </form>
+    </section>
+
+    {# ---------- Right: rules + example ---------- #}
+    <aside class="brief-detail" aria-label="Security rules">
+      <section class="glass panel rules-panel" id="rules-panel" data-section-target="rules" aria-labelledby="rules-title">
+        <header class="card-head rules-head">
+          <div class="rules-head-text">
+            <h2 id="rules-title" class="card-title">Security rules</h2>
+            <p class="hint" data-rules-count aria-live="polite">{{ enabled_count }} of {{ total_rules }} rules are on</p>
+          </div>
+          <span class="round-btn rules-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z"/></svg>
+          </span>
+        </header>
+
+        <div class="rules-stats">
+          <div class="stat">
+            <p class="stat-label">
+              <span class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+              Rules on
+            </p>
+            <p class="display-num" aria-hidden="true"><span data-stat-on>{{ enabled_count }}</span><span class="rules-of">/<span data-stat-total>{{ total_rules }}</span></span></p>
+          </div>
+          <div class="stat">
+            <p class="stat-label">
+              <span class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 17.5L3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2"/></svg></span>
+              Bugs caught
+            </p>
+            <p class="display-num" aria-hidden="true" data-stat-caught>{{ ns.hits }}</p>
+            <p class="sr-only">{{ ns.hits }} bugs caught so far</p>
+          </div>
+        </div>
+
+        <div class="meter is-fixed rules-meter" data-rules-meter style="--v: {{ ((enabled_count / total_rules) * 100) | round(1) if total_rules else 0 }}%" aria-hidden="true"><i></i></div>
+
+        <p class="muted rules-intro">Every commit is attacked against the rules that are on. Turn a rule off if it does not fit your app.</p>
+
+        <hr class="dotted" aria-hidden="true">
+
+        <ul class="rules-list" data-rules aria-busy="false">
+          {% for rule in rules %}
+          <li class="rule {% if not rule.enabled %}is-off{% endif %}" data-rule-id="{{ rule.id }}" data-hits="{{ rule.hits or 0 }}">
+            <span class="check is-done" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+            <div class="rule-body">
+              <p class="rule-text" id="rule-text-{{ rule.id }}">{{ rule.text }}</p>
+              {% if rule.hits %}
+              <span class="badge badge-attack rule-hits">Caught {{ rule.hits }} bug{% if rule.hits != 1 %}s{% endif %}</span>
+              {% else %}
+              <span class="rule-quiet hint">No bugs caught yet</span>
+              {% endif %}
+            </div>
+            <label class="switch">
+              <input type="checkbox" data-rule-toggle {% if rule.enabled %}checked{% endif %}
+                aria-labelledby="rule-text-{{ rule.id }}">
+              <span></span>
+            </label>
+          </li>
+          {% else %}
+          <li class="rules-empty">
+            <p class="rule-text">No rules yet</p>
+            <p class="hint">Fill in the brief, then choose Save and generate rules.</p>
+          </li>
+          {% endfor %}
+        </ul>
+      </section>
+
+      <section class="glass panel example-card" aria-labelledby="example-title">
+        <header class="card-head">
+          <div>
+            <h2 id="example-title" class="card-title">How a rule becomes an attack</h2>
+            <p class="hint example-sub">A real run from commit <code>c7f0a13</code></p>
+          </div>
+        </header>
+
+        <ol class="flow is-vertical example-flow" aria-label="From rule to attack to result">
+          <li class="flow-node is-dark example-step">
+            <span class="check example-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z"/></svg>
+            </span>
+            <div class="example-body">
+              <p class="example-label">Your rule</p>
+              <p class="example-text">A student can only see their own marks.</p>
+            </div>
+          </li>
+          <li class="flow-node is-attack example-step">
+            <span class="check is-attack example-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 17.5L3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2"/></svg>
+            </span>
+            <div class="example-body">
+              <p class="example-label">The attack SecureFix tries</p>
+              <p class="example-text">Log in as Rahul, then open Priya's marks page.</p>
+              <code class="example-code">GET /marks/7 as student 3</code>
+              <div class="example-result">
+                <span class="badge badge-attack">Before the fix</span>
+                <p class="example-text">Priya's marks were shown. The bug is real.</p>
+              </div>
+            </div>
+          </li>
+          <li class="flow-node is-pass example-step">
+            <span class="check is-pass example-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+            </span>
+            <div class="example-body">
+              <p class="example-label">What happened</p>
+              <div class="example-result">
+                <span class="badge badge-fixed">After the fix</span>
+                <p class="example-text">Access denied, and 12 of 12 tests still pass.</p>
+              </div>
+            </div>
+          </li>
+        </ol>
+
+        {% if learn %}
+        <p class="example-why muted">Why it matters: a scanner sees nothing wrong here, because the code is "correct". Only your rule says Rahul should not see Priya's marks.</p>
+        {% endif %}
+        <a class="btn btn-glass btn-block" href="/dashboard?commit=c7f0a13">Open the full report</a>
+      </section>
+    </aside>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/pages/brief.js" defer></script>
+{% endblock %}

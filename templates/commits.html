@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, avatar %}
+
+{% block title %}Commits | SecureFix{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="/static/css/pages/commits.css">
+{% endblock %}
+
+{% block body_class %}page-commits{% endblock %}
+
+{% block content %}
+<div class="page">
+  <header class="page-head">
+    <div>
+      <h1 class="page-title">Commits</h1>
+      <p class="page-sub">Everyone's commits and what we found. Open one to talk it through in chat.</p>
+    </div>
+  </header>
+
+  <div class="filters" id="filters">
+    <div class="filter-group" role="group" aria-label="Filter by person" id="member-filter">
+      <button class="filter-pill" type="button" data-member="" aria-pressed="true">Everyone</button>
+      {% for m in members %}
+        <button class="filter-pill" type="button" data-member="{{ m.login }}" aria-pressed="false">
+          {{ avatar(m, 'sm') }}<span>{{ (m.name or m.login).split(' ')[0] }}</span>
+        </button>
+      {% endfor %}
+    </div>
+    <div class="filter-group" role="group" aria-label="Filter by state" id="state-filter">
+      <button class="filter-pill" type="button" data-state="" aria-pressed="true">All</button>
+      <button class="filter-pill" type="button" data-state="new" aria-pressed="false">New</button>
+      <button class="filter-pill" type="button" data-state="fixed" aria-pressed="false">Fixed</button>
+      <button class="filter-pill" type="button" data-state="attention" aria-pressed="false">Needs attention</button>
+      <button class="filter-pill" type="button" data-state="safe" aria-pressed="false">Safe</button>
+    </div>
+  </div>
+
+  <div id="commit-list" class="commit-list" aria-live="polite" aria-busy="true">
+    <div class="list" aria-hidden="true">
+      <div class="commit-row"><div class="commit-main"><span class="skeleton skeleton-line-lg"></span><span class="skeleton skeleton-line-sm"></span></div></div>
+      <div class="commit-row"><div class="commit-main"><span class="skeleton skeleton-line-lg"></span><span class="skeleton skeleton-line-sm"></span></div></div>
+      <div class="commit-row"><div class="commit-main"><span class="skeleton skeleton-line-lg"></span><span class="skeleton skeleton-line-sm"></span></div></div>
+    </div>
+  </div>
+</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4.5"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-repo" viewBox="0 0 24 24"><path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v15H7.5A2.5 2.5 0 0 0 5 20.5z"/><path d="M5 20.5A2.5 2.5 0 0 0 7.5 21H19v-3"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.5L4 8.5"/><path d="M4 4v4.5h4.5"/><path d="M4 13a8 8 0 0 0 14.3 4.5L20 15.5"/><path d="M20 20v-4.5h-4.5"/></symbol>
+  </defs>
+</svg>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/pages/commits.js" defer></script>
+{% endblock %}
