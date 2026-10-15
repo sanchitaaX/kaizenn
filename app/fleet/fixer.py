@@ -92,7 +92,7 @@ SYSTEM = (
 
 def ai_fix(token: str, vuln: dict, brief: str = "") -> dict:
     if not llm.is_configured():
-        raise FixError("AI fixes need an LLM key. Add OPENAI_API_KEY to .env and restart SecureFix.")
+        raise FixError("AI fixes need an LLM key. Add OPENAI_API_KEY to .env and restart KAIZEN.")
     try:
         found = github.get_file(token, vuln["full_name"], vuln["file"], vuln.get("default_branch") or "main")
     except github.GitHubError as exc:
@@ -131,7 +131,7 @@ def commit_to_github(token: str, vuln: dict, fix: dict, proof_lines: list[str] |
     """Branch, commit the corrected file, open a pull request. Returns {branch, pr_url, commit_sha}."""
     repo, path = vuln["full_name"], vuln["file"]
     base = vuln.get("default_branch") or "main"
-    branch = f"securefix/vuln-{vuln['id']}"
+    branch = f"kaizen/vuln-{vuln['id']}"
     try:
         found = github.get_file(token, repo, path, base)
         if not found:
@@ -144,7 +144,7 @@ def commit_to_github(token: str, vuln: dict, fix: dict, proof_lines: list[str] |
         _, branch_blob = github.get_file(token, repo, path, branch) or (None, blob_sha)
         commit = github.update_file(token, repo, path, content, branch_blob, branch,
                                     f"Fix {vuln['title'].lower()} in {path}")
-        body = (f"SecureFix fix for code scanning alert"
+        body = (f"KAIZEN fix for code scanning alert"
                 f"{' #' + str(vuln['alert_number']) if vuln.get('alert_number') else ''}: "
                 f"**{vuln['title']}** ({vuln.get('cwe') or 'security'}, {vuln['severity']}) in `{path}` "
                 f"line {vuln['line']}.\n\n{fix['explanation']}\n\n"

@@ -48,7 +48,7 @@
     var done = [];
     if (t.fixed) done.push(plural(t.fixed, "fixed", "fixed"));
     if (t.in_review) done.push(t.in_review + " waiting for review");
-    if (t.agent_fixed) done.push(plural(t.agent_fixed, "fix", "fixes") + " by the SecureFix agent");
+    if (t.agent_fixed) done.push(plural(t.agent_fixed, "fix", "fixes") + " by the KAIZEN agent");
     if (done.length) left.appendChild(el("p", "learn-count learn-done", "Progress: " + done.join(" · ") + "."));
     head.appendChild(left);
     var link = el("a", "learn-link", "See them ");
@@ -61,7 +61,7 @@
       var note = el("p", "learn-note");
       note.appendChild(icon("alert"));
       note.appendChild(el("span", null, (t.unconfirmed === t.total ? "All of these were" : t.unconfirmed + " of these were") +
-        " flagged by SecureFix's pattern scan and are not confirmed yet. Use Fix on the dashboard to have the agent check them."));
+        " flagged by KAIZEN's pattern scan and are not confirmed yet. Use Fix on the dashboard to have the agent check them."));
       c.appendChild(note);
     }
     if ((t.remember || []).length) {
@@ -185,13 +185,13 @@
   }
 
   function load() {
-    window.SecureFix.api("/api/learning").then(function (data) {
+    window.Kaizen.api("/api/learning").then(function (data) {
       var list = (data && data.mistakes) || [];
       var repos = (data && data.repos) || [];
       var nodes = [];
       if (repos.length) {
         nodes.push(section("From your repositories",
-          "Each kind of problem SecureFix found in your GitHub repositories, how far the fixes have got, and what to study."));
+          "Each kind of problem KAIZEN found in your GitHub repositories, how far the fixes have got, and what to study."));
         repos.forEach(function (t) { nodes.push(repoCard(t)); });
       }
       if (list.length) {

@@ -104,7 +104,7 @@ def recent(login: str, limit: int = 20) -> list[dict]:
     return [dict(r) | {"created_label": db.humanize(r["created_at"])} for r in rows]
 
 
-INTERRUPTED = "SecureFix restarted while this run was going, so it stopped. Start it again."
+INTERRUPTED = "KAIZEN restarted while this run was going, so it stopped. Start it again."
 
 
 def close_interrupted() -> int:
@@ -218,7 +218,7 @@ def execute(run_id: int, token: str | None, target: dict | None = None, local: P
             findings = [target]
             run.step("discover", "skipped", f"Alert from code scanning: {target['title']} at {target['file']}:{target['line']}")
         else:
-            run.step("discover", "running", "Scanning with SecureFix rules, Bandit, Semgrep and CodeQL")
+            run.step("discover", "running", "Scanning with KAIZEN rules, Bandit, Semgrep and CodeQL")
             cands, sources = discover.gather(ws, run.rec, token)
             res["candidates"] = [{k: c[k] for k in ("id", "type", "file", "line", "scanner", "severity")} for c in cands]
             if fast_mode:  # the repair call itself decides whether a candidate is real

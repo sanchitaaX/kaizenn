@@ -18,7 +18,7 @@ from app.engine.types import Finding, ScanContext
 
 SCAN_TIMEOUT = 120
 
-# Scanner rule ids -> SecureFix bug types (the three types in scope for the hackathon).
+# Scanner rule ids -> KAIZEN bug types (the three types in scope for the hackathon).
 BANDIT_MAP = {
     "B608": "SQL_INJECTION",   # hardcoded_sql_expressions
     "B610": "SQL_INJECTION",   # django_extra_used

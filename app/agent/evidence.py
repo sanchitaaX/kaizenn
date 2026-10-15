@@ -22,7 +22,7 @@ from app.config import settings
 LIMITATIONS = [
     "Existing tests show that no regression was detected by those tests; behaviour they do not cover is not proven.",
     "The security test demonstrates one exploit path; other paths to the same weakness may exist.",
-    "Commands ran on the SecureFix host in a temporary folder with a stripped environment, not in a container.",
+    "Commands ran on the KAIZEN host in a temporary folder with a stripped environment, not in a container.",
     "The patch was written by an AI model and must be reviewed by a person before it is merged.",
 ]
 
@@ -68,5 +68,5 @@ def zip_bytes(run_id: int) -> bytes | None:
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for p in sorted(d.rglob("*")):
             if p.is_file():
-                z.write(p, f"securefix-run-{run_id}/{p.relative_to(d).as_posix()}")
+                z.write(p, f"kaizen-run-{run_id}/{p.relative_to(d).as_posix()}")
     return buf.getvalue()

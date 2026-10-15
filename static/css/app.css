@@ -1,4 +1,4 @@
-/* SecureFix design system.
+/* KAIZEN design system.
    Calm and minimal: neutrals plus one accent (periwinkle) and one alert (soft coral).
    Everything shared lives here. See docs/DESIGN.md for the class list. */
 
@@ -146,11 +146,8 @@ hr { border: 0; border-top: 1px solid var(--hairline); margin: var(--s-4) 0; }
   font-weight: 700; font-size: var(--fs-17); color: var(--ink); letter-spacing: -0.01em;
 }
 .brand:hover { text-decoration: none; }
-.brand-mark {
-  width: 28px; height: 28px; border-radius: var(--r-sm);
-  display: grid; place-items: center;
-  background: var(--accent-tint); color: var(--accent-ink);
-}
+.brand-mark { width: 28px; height: 28px; display: block; border-radius: 8px; }
+.brand-text { letter-spacing: 0.08em; }
 .tabs { display: flex; gap: var(--s-1); margin-left: var(--s-4); }
 .tab {
   padding: 6px var(--s-4);
@@ -547,7 +544,7 @@ a.list-row:hover, button.list-row:hover { background: var(--surface-soft); text-
   border-bottom: 1px solid var(--hairline);
   background: linear-gradient(90deg, rgba(94, 106, 210, 0.10), rgba(94, 106, 210, 0.02));
 }
-.chat-panel-mark { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: var(--accent-tint-2); color: var(--accent-ink); }
+.chat-panel-mark { width: 20px; height: 20px; display: block; border-radius: 6px; }
 .chat-panel-title { font-weight: 700; font-size: var(--fs-15); }
 .chat-panel-frame { flex: 1; width: 100%; border: 0; background: var(--canvas); }
 @keyframes panel-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }

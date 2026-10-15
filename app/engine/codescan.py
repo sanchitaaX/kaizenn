@@ -1,6 +1,6 @@
 """Real results for real repositories, from GitHub code scanning (CodeQL).
 
-GitHub runs CodeQL on the repository itself. For a commit, SecureFix reads the repository's open code
+GitHub runs CodeQL on the repository itself. For a commit, KAIZEN reads the repository's open code
 scanning alerts and keeps the ones in files that commit changed. Nothing is guessed: every finding is a
 CodeQL alert with its rule, severity, CWE tags and location, and links back to the alert on GitHub.
 """
@@ -19,7 +19,7 @@ class CodeScanUnavailable(Exception):
     """Code scanning results cannot be read for this repository. The message is shown to the user."""
 
 
-# CWE numbers -> SecureFix bug types (others keep a readable type made from the rule).
+# CWE numbers -> KAIZEN bug types (others keep a readable type made from the rule).
 CWE_TYPES = {
     "089": "SQL_INJECTION", "564": "SQL_INJECTION", "943": "SQL_INJECTION",
     "022": "PATH_TRAVERSAL", "023": "PATH_TRAVERSAL", "036": "PATH_TRAVERSAL", "073": "PATH_TRAVERSAL",
@@ -74,7 +74,7 @@ def run(ctx: ScanContext, notify: Notify) -> dict:
                 "Turn on CodeQL in the repository's Settings, Code security, then try again.") from exc
         if exc.status_code == 403:
             raise CodeScanUnavailable(
-                "GitHub did not allow reading code scanning results. Sign out and sign in again so SecureFix "
+                "GitHub did not allow reading code scanning results. Sign out and sign in again so KAIZEN "
                 "can ask for the security events permission.") from exc
         raise
 

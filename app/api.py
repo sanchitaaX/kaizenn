@@ -4,7 +4,7 @@ Chat-first product: GET /repos, GET /repos/{owner}/{name}/commits, POST /brief/e
 pull-request), GET /commits (team), GET /learning, POST /profile/modes and /profile/role.
 The older onboarding, dashboard and brief-page endpoints below them keep working but the screens no longer use them.
 
-Call them with SecureFix.api(path, {method, body: JSON.stringify(...)}) from static/js/app.js.
+Call them with Kaizen.api(path, {method, body: JSON.stringify(...)}) from static/js/app.js.
 Errors come back as {"detail": "<plain sentence>"} with a 4xx status.
 """
 
@@ -192,7 +192,7 @@ def _open_pr(user: dict, repo: str, commit: dict) -> dict:
     if token and report.get("fix_branch"):
         info = db.get_repo(repo)
         bug = report.get("bug_type") or "security bug"
-        body = (f"SecureFix proved a {bug} in {commit['sha']} with a working attack, then verified this fix: "
+        body = (f"KAIZEN proved a {bug} in {commit['sha']} with a working attack, then verified this fix: "
                 f"the attack is blocked and the tests pass.\n\n{report.get('explanation') or ''}")
         try:
             pr = github.create_pull_request(token, repo, head=report["fix_branch"],
@@ -552,7 +552,7 @@ class AskIn(BaseModel):
 
 
 ASK_SYSTEM = (
-    "You are SecureFix's assistant inside a security repair app. Answer the user's message helpfully and briefly "
+    "You are KAIZEN's assistant inside a security repair app. Answer the user's message helpfully and briefly "
     "(a few short paragraphs or a short list at most). You can explain vulnerabilities, fixes, the agent's verdicts "
     "(Verified: the exploit test failed before the patch and passes after it, and the existing tests still pass; "
     "Inconclusive: something could not be proven; Failed: the patch did not hold), and how to use the app: type a "
@@ -793,11 +793,11 @@ def analysis_decision(analysis_id: int, body: DecisionIn, user: dict = Depends(r
             # Real accounts: the fix lands as a pull request from the fix branch, so a person still reviews it.
             pr = _open_pr(user, a["repo"], commit)
             db.set_analysis_pull_request(analysis_id, pr)
-            decision.update(branch=f"securefix/fix-{short}", pull_request=pr)
+            decision.update(branch=f"kaizen/fix-{short}", pull_request=pr)
         else:
             # Demo: record the commit without touching GitHub.
             fake = hashlib.sha1(f"{a['repo']}:{a['sha']}:fix".encode()).hexdigest()[:7]
-            decision.update(branch=f"securefix/fix-{short}", commit_sha=fake)
+            decision.update(branch=f"kaizen/fix-{short}", commit_sha=fake)
     db.set_analysis_decision(analysis_id, decision)
     return decision
 

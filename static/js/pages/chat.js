@@ -10,7 +10,7 @@
 (function () {
   "use strict";
 
-  const SF = window.SecureFix;
+  const SF = window.Kaizen;
   const root = document.getElementById("chat");
   if (!root || !SF) return;
 
@@ -1507,7 +1507,7 @@
   async function showRun(id, run) {
     run = run || S.run;
     S.phase = "running";
-    const head = h("div", "agent-head", [h("span", "agent-badge", "SecureFix agent"), h("span", "agent-repo", "")]);
+    const head = h("div", "agent-head", [h("span", "agent-badge", "KAIZEN agent"), h("span", "agent-repo", "")]);
     const steps = h("ol", "agent-steps");
     const msg = assistant([head, steps]);
     scrollEnd();

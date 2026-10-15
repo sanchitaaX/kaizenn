@@ -5,7 +5,7 @@ it lists their repositories (newest push first) and re-reads the alerts of every
 changed since the last look. Repositories pushed in the last 30 minutes are read again on every pass, because
 GitHub's CodeQL run finishes a few minutes after the push. Someone with no repositories read yet gets a full scan.
 
-When SecureFix runs on a public URL, the GitHub webhook (app/fleet_api.py, POST /api/github/webhook) does the
+When KAIZEN runs on a public URL, the GitHub webhook (app/fleet_api.py, POST /api/github/webhook) does the
 same thing instantly for one repository.
 """
 
@@ -35,12 +35,12 @@ def read_repo(login: str, token: str, repo: dict) -> str:
     try:
         alerts = github.list_code_scanning_alerts(token, repo["full_name"])
     except github.GitHubError as exc:
-        if exc.status_code in (403, 404):  # code scanning off: scan the code with SecureFix's own scanners
+        if exc.status_code in (403, 404):  # code scanning off: scan the code with KAIZEN's own scanners
             try:
                 store.save_github_repo(login, repo, selfscan.scan(token, repo), "scanned")
                 return "scanned"
             except Exception:
-                log.exception("SecureFix scan of %s failed", repo["full_name"])
+                log.exception("KAIZEN scan of %s failed", repo["full_name"])
         status = "no_code_scanning" if exc.status_code in (403, 404) else "error"
         store.save_github_repo(login, repo, None, status)
         return status

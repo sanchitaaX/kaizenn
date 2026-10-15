@@ -1,4 +1,4 @@
-"""SQLite persistence for SecureFix.
+"""SQLite persistence for KAIZEN.
 
 One small file, stdlib sqlite3 only. Every public function opens its own short-lived
 connection, so it is safe to call from request handlers and from scan threads.
@@ -1051,7 +1051,7 @@ def clear_history(login: str) -> int:
 
 
 def delete_user_data(login: str) -> None:
-    """Delete everything SecureFix stores for this user: chats, repository list, GitHub token and profile.
+    """Delete everything KAIZEN stores for this user: chats, repository list, GitHub token and profile.
     Shared repository data (team commits and their reports) stays, because it belongs to the whole team."""
     clear_history(login)
     with tx() as conn:

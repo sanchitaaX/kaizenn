@@ -48,7 +48,7 @@ def _run(job: dict, login: str, token: str | None) -> None:
                     continue
                 raise
             status = watch.read_repo(login, token, info)
-            note = {"no_code_scanning": "Neither GitHub code scanning nor SecureFix's own scan could read this repository.",
+            note = {"no_code_scanning": "Neither GitHub code scanning nor KAIZEN's own scan could read this repository.",
                     "error": "GitHub failed while reading this repository."}.get(status, "")
             job["results"].append(_result(login, info["full_name"],
                                           {"no_code_scanning": "hidden"}.get(status, status), note))

@@ -14,7 +14,7 @@
   const MODE_BY_ROLE = { student: "Learn mode", professional: "Report mode" };
 
   const toast = (msg) => {
-    if (window.SecureFix && typeof window.SecureFix.toast === "function") window.SecureFix.toast(msg);
+    if (window.Kaizen && typeof window.Kaizen.toast === "function") window.Kaizen.toast(msg);
   };
 
   const checkedValue = (name) => {
@@ -100,7 +100,7 @@
     setBusy(true);
 
     try {
-      const data = await window.SecureFix.api("/api/onboarding", {
+      const data = await window.Kaizen.api("/api/onboarding", {
         method: "POST",
         body: JSON.stringify({ role, repo, brief_next: wantsBrief }),
       });

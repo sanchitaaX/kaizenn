@@ -1,7 +1,7 @@
 // Profile: save the answer modes and the role as soon as they change.
 
 (function () {
-  const sf = window.SecureFix;
+  const sf = window.Kaizen;
   const toast = (msg) => sf && sf.toast(msg);
   const switches = Array.from(document.querySelectorAll("input[data-mode]"));
   const roleButtons = Array.from(document.querySelectorAll("#role-picker button[data-role]"));
@@ -74,23 +74,23 @@
     if (!window.confirm("Delete all your chats, results and follow-up questions? This cannot be undone.")) return;
     clearBtn.disabled = true;
     try {
-      const data = await window.SecureFix.api("/api/profile/clear-history", { method: "POST" });
-      window.SecureFix.toast(data.removed ? "Chat history cleared" : "There was no history to clear");
+      const data = await window.Kaizen.api("/api/profile/clear-history", { method: "POST" });
+      window.Kaizen.toast(data.removed ? "Chat history cleared" : "There was no history to clear");
     } catch (err) {
-      window.SecureFix.toast(err.message || "Could not clear your history. Try again.");
+      window.Kaizen.toast(err.message || "Could not clear your history. Try again.");
     } finally {
       clearBtn.disabled = false;
     }
   });
   if (deleteBtn) deleteBtn.addEventListener("click", async () => {
-    if (!window.confirm("Delete all your SecureFix data and sign out? This cannot be undone.")) return;
+    if (!window.confirm("Delete all your KAIZEN data and sign out? This cannot be undone.")) return;
     deleteBtn.disabled = true;
     try {
-      const data = await window.SecureFix.api("/api/profile/delete-data", { method: "POST" });
+      const data = await window.Kaizen.api("/api/profile/delete-data", { method: "POST" });
       location.href = (data && data.redirect) || "/login";
     } catch (err) {
       deleteBtn.disabled = false;
-      window.SecureFix.toast(err.message || "Could not delete your data. Try again.");
+      window.Kaizen.toast(err.message || "Could not delete your data. Try again.");
     }
   });
 })();

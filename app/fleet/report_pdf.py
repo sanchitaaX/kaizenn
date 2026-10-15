@@ -31,7 +31,7 @@ PALE = colors.HexColor("#e3e6f8")
 REMOVED = colors.HexColor("#eef0f4")
 SEV_FILL = {"critical": DEEP, "high": MID, "medium": PALE, "low": SURFACE}
 SEV_INK = {"critical": colors.white, "high": colors.white, "medium": DEEP, "low": SOFT}
-SOURCE = {"demo": "SecureFix demo data", "codeql": "GitHub code scanning (CodeQL)"}
+SOURCE = {"demo": "KAIZEN demo data", "codeql": "GitHub code scanning (CodeQL)"}
 STATUS = {"open": "Open", "fix_saved": "Fix written, waiting for review", "pr_open": "Pull request open",
           "fixed": "Fixed"}
 MAX_DETAILED = 40  # findings written out in full in a repository report
@@ -115,7 +115,7 @@ def _diff(old: str, new: str, start: int, path: str) -> Table:
 
 def _doc(buf: io.BytesIO, title: str, subject: str, footer: str) -> tuple[SimpleDocTemplate, callable]:
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=18 * mm,
-                            bottomMargin=20 * mm, title=title, author="SecureFix", subject=subject)
+                            bottomMargin=20 * mm, title=title, author="KAIZEN", subject=subject)
 
     def page(canvas, d):
         canvas.saveState()
@@ -166,7 +166,7 @@ def render(title: str, s: dict, top: list[dict], major: dict, user: dict) -> byt
     now = db.now()
     report_id = f"SF-ORG-{now:%Y%m%d-%H%M}"
     doc, page = _doc(buf, f"{title} technical security report", f"Security assessment of {title}",
-                     f"SecureFix technical security report  {report_id}")
+                     f"KAIZEN technical security report  {report_id}")
     out: list = []
     _head(out, "Technical security report", f"{title}  ·  {now:%d %B %Y, %H:%M} UTC", report_id)
 
@@ -174,7 +174,7 @@ def render(title: str, s: dict, top: list[dict], major: dict, user: dict) -> byt
     out.append(_kv_table([
         ("Organization", title),
         ("Repositories in scope", f"{_n(s['repos_total'])} ({_n(s['repos_scanned'])} with code scanning results)"),
-        ("Data source", "GitHub code scanning (CodeQL) alerts; SecureFix demo data for the demo organization"),
+        ("Data source", "GitHub code scanning (CodeQL) alerts; KAIZEN demo data for the demo organization"),
         ("Last scan", s["last_scan_label"]),
         ("Major finding threshold", f"risk score {major['min_score']} or more"),
         ("Prepared for", user.get("name") or user["login"]),
@@ -253,7 +253,7 @@ def render(title: str, s: dict, top: list[dict], major: dict, user: dict) -> byt
 
     out.append(_p("7. Remediation status", "h2"))
     out.append(_kv_table([
-        ("Fixes committed through SecureFix", _n(s["committed_fixes"])),
+        ("Fixes committed through KAIZEN", _n(s["committed_fixes"])),
         ("Fixes written, waiting for review", _n(len(s["saved_fixes"]))),
         ("Findings fixed in the last 30 days", _n(s["fixed_30d"])),
     ]))
@@ -289,7 +289,7 @@ def render_repo(found: dict, fixes: dict, user: dict) -> bytes:
     now = db.now()
     report_id = f"SF-R{r['id']}-{now:%Y%m%d-%H%M}"
     doc, page = _doc(buf, f"{r['full_name']} technical security report", f"Security assessment of {r['full_name']}",
-                     f"SecureFix technical security report  {report_id}")
+                     f"KAIZEN technical security report  {report_id}")
     out: list = []
     _head(out, "Repository security report", f"{r['full_name']}  ·  {now:%d %B %Y, %H:%M} UTC", report_id)
 

@@ -76,7 +76,7 @@ def from_rules(ws: Workspace) -> list[dict]:
         except OSError:
             continue
         for hit in rules.scan_text(f, text):
-            out.append(_candidate(ws, hit["type"], f, hit["line"], "securefix-rules", hit["match"]))
+            out.append(_candidate(ws, hit["type"], f, hit["line"], "kaizen-rules", hit["match"]))
     return out
 
 
@@ -148,10 +148,10 @@ def from_codeql(ws: Workspace, token: str | None) -> list[dict]:
 
 def gather(ws: Workspace, rec: Recorder, token: str | None) -> tuple[list[dict], list[str]]:
     sources, cands = [], []
-    for name, fn in (("SecureFix rules", lambda: from_rules(ws)), ("Bandit", lambda: from_bandit(ws, rec)),
+    for name, fn in (("KAIZEN rules", lambda: from_rules(ws)), ("Bandit", lambda: from_bandit(ws, rec)),
                      ("Semgrep", lambda: from_semgrep(ws, rec)), ("CodeQL", lambda: from_codeql(ws, token))):
         found = fn()
-        if found or name == "SecureFix rules":
+        if found or name == "KAIZEN rules":
             sources.append(f"{name}: {len(found)}")
         cands += found
     merged: dict[tuple, dict] = {}

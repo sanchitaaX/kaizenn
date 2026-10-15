@@ -1,6 +1,6 @@
 """BRIEF.md: the project brief written into the repository itself, so it is kept with the code.
 
-The file starts with a marker line, so SecureFix only ever replaces a BRIEF.md it wrote, and the agent can read
+The file starts with a marker line, so KAIZEN only ever replaces a BRIEF.md it wrote, and the agent can read
 the brief from a downloaded repository when nobody saved one on the dashboard.
 """
 
@@ -10,7 +10,9 @@ import re
 from pathlib import PurePosixPath
 
 PATH = "BRIEF.md"
-MARKER = "<!-- securefix-brief: written by SecureFix from the project brief. Edit it in SecureFix or here. -->"
+MARKER = "<!-- kaizen-brief: written by KAIZEN from the project brief. Edit it in KAIZEN or here. -->"
+# Files pushed before the rename start with this line; they are still ours to read and replace.
+LEGACY_MARKER = "<!-- securefix-brief: written by SecureFix from the project brief. Edit it in SecureFix or here. -->"
 MAX_FILE_CHARS = 8000   # each attached file in BRIEF.md
 MAX_DOC_CHARS = 60_000
 
@@ -36,21 +38,22 @@ def render(full_name: str, brief: str, files: list[dict]) -> str:
                 fence = "````" if "```" in text else "```"
                 out += [fence + FENCE.get(ext, ""), text, fence, ""]
             if cut:
-                out += ["_(shortened; the full file is attached to the brief in SecureFix)_", ""]
-    out += ["---", "SecureFix sends this brief with every fix it writes for this repository, so the changes keep "
+                out += ["_(shortened; the full file is attached to the brief in KAIZEN)_", ""]
+    out += ["---", "KAIZEN sends this brief with every fix it writes for this repository, so the changes keep "
                    "the behaviour described here."]
     return "\n".join(out)[:MAX_DOC_CHARS].rstrip() + "\n"
 
 
 def is_ours(text: str) -> bool:
-    return text.lstrip().startswith(MARKER)
+    return text.lstrip().startswith((MARKER, LEGACY_MARKER))
 
 
 def to_brief(text: str) -> str:
-    """The brief an agent run should use, from a BRIEF.md SecureFix wrote ('' for any other file)."""
+    """The brief an agent run should use, from a BRIEF.md KAIZEN wrote ('' for any other file)."""
     if not is_ours(text):
         return ""
-    body = text.lstrip()[len(MARKER):].strip()
+    head = text.lstrip()
+    body = head[len(LEGACY_MARKER if head.startswith(LEGACY_MARKER) else MARKER):].strip()
     body = body.rsplit("\n---\n", 1)[0].strip()
     if body.startswith("# Project brief:"):
         body = body.split("\n", 1)[1] if "\n" in body else ""
@@ -92,9 +95,9 @@ def _notes(brief: str, files: list[dict]) -> str:
 def compose(full_name: str, body: str) -> str:
     """A complete BRIEF.md around an edited or AI-written body (marker, title and footer added here)."""
     body = re.sub(r"^\s*#\s+[^\n]*\n", "", body.strip(), count=1) if body.lstrip().startswith("# ") else body.strip()
-    body = body.replace(MARKER, "").strip()
+    body = body.replace(MARKER, "").replace(LEGACY_MARKER, "").strip()
     out = [MARKER, "", f"# Project brief: {full_name}", "", body or "_No description yet._", "", "---",
-           "SecureFix sends this brief with every fix it writes for this repository, so the changes keep the "
+           "KAIZEN sends this brief with every fix it writes for this repository, so the changes keep the "
            "behaviour described here."]
     return "\n".join(out)[:MAX_DOC_CHARS].rstrip() + "\n"
 

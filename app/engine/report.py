@@ -17,7 +17,7 @@ from app.engine.analysis import bug_info
 
 log = logging.getLogger(__name__)
 
-# Weakness catalogue entries and a default severity for the bug types SecureFix reports.
+# Weakness catalogue entries and a default severity for the bug types KAIZEN reports.
 CWE = {
     "SQL_INJECTION": ("CWE-89", "Improper Neutralization of Special Elements used in an SQL Command", "High"),
     "PATH_TRAVERSAL": ("CWE-22", "Improper Limitation of a Pathname to a Restricted Directory", "High"),

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros.html" import icon %}
 
-{% block title %}Chat - SecureFix{% endblock %}
+{% block title %}Chat - KAIZEN{% endblock %}
 {% block styles %}<link rel="stylesheet" href="/static/css/pages/chat.css">{% endblock %}
 
 {% block content %}
@@ -36,7 +36,7 @@
     <form class="composer" id="composer" autocomplete="off">
       <div class="composer-box is-off" id="composer-box">
         <div class="composer-attachments" id="attachments" hidden></div>
-        <textarea class="composer-input" id="input" rows="2" data-autogrow aria-label="Your message" placeholder="Ask SecureFix to check a commit..." disabled></textarea>
+        <textarea class="composer-input" id="input" rows="2" data-autogrow aria-label="Your message" placeholder="Ask KAIZEN to check a commit..." disabled></textarea>
         <div class="composer-bar">
           <button class="chip repo-chip" id="repo-chip" type="button" aria-haspopup="listbox" aria-expanded="false" title="Choose a repository">
             {{ icon('repo', 14) }}<span class="chip-label" id="repo-chip-label">Choose a repository</span>

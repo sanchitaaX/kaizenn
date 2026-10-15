@@ -552,7 +552,14 @@ def test_brief_md_round_trips_into_an_agent_brief():
     assert doc.startswith(briefdoc.MARKER) and "# Project brief: me/shop" in doc and "```python" in doc
     brief = briefdoc.to_brief(doc)
     assert "only admins export" in brief and "Admins export." in brief and briefdoc.MARKER not in brief
-    assert briefdoc.to_brief("# Our own brief\nnot written by SecureFix") == ""
+    assert briefdoc.to_brief("# Our own brief\nnot written by KAIZEN") == ""
+
+
+def test_briefdoc_still_reads_a_brief_written_before_the_rename():
+    from app.fleet import briefdoc
+
+    old = briefdoc.LEGACY_MARKER + "\n\n# Project brief: me/shop\n\nOnly admins export.\n"
+    assert "Only admins export." in briefdoc.to_brief(old)
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 // Sign-in: a busy state on the button and a toast when GitHub sends the user back with an error.
 
 (function () {
-  const sf = window.SecureFix;
+  const sf = window.Kaizen;
 
   const signin = document.getElementById("signin");
   if (signin) {

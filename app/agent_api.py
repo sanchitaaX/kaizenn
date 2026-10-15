@@ -96,7 +96,7 @@ def report_pdf(run_id: int, user: dict = Depends(require_user)):
     run = _run_or_404(run_id, user)
     if run["status"] == "running":
         raise HTTPException(status_code=409, detail="The run is still going.")
-    name = f"securefix-agent-{run['repo'].replace('/', '-')}-{run_id}.pdf"
+    name = f"kaizen-agent-{run['repo'].replace('/', '-')}-{run_id}.pdf"
     return Response(report.render(run, user), media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
@@ -115,7 +115,7 @@ def pull_request(run_id: int, user: dict = Depends(require_user)):
     if not token or not files:
         raise HTTPException(status_code=409, detail="There is no patch to send.")
     repo, base, sha = run["repo"], ws.get("ref") or "main", ws.get("sha")
-    branch = f"securefix/agent-{run_id}"
+    branch = f"kaizen/agent-{run_id}"
     f = res.get("finding") or {}
     try:
         github.create_branch(token, repo, branch, sha)
@@ -125,7 +125,7 @@ def pull_request(run_id: int, user: dict = Depends(require_user)):
                             found[1] if found else None)
         for sec in res.get("security_tests") or [res.get("security_test") or {}]:
             if sec.get("code") and sec.get("path"):
-                github.put_file(token, repo, sec["path"], sec["code"], branch, "Add the SecureFix exploit regression test")
+                github.put_file(token, repo, sec["path"], sec["code"], branch, "Add the KAIZEN exploit regression test")
         fixes = [x for x in res.get("fixes") or [] if x.get("verdict") != "failed"]
         title = (f"Fix {len(fixes)} security vulnerabilities" if len(fixes) > 1 else
                  f"Fix {f.get('title', 'security issue').lower()} in {f.get('file', '')}")
@@ -152,7 +152,7 @@ def _titles(res: dict, path: str) -> str:
 def _pr_body(run_id: int, res: dict) -> str:
     fixes = res.get("fixes") or []
     if len(fixes) > 1:
-        lines = [f"**SecureFix agent run {run_id}: {res.get('verdict', '').upper()}**", "",
+        lines = [f"**KAIZEN agent run {run_id}: {res.get('verdict', '').upper()}**", "",
                  f"The agent worked through {len(fixes)} vulnerabilities. Each one has its own exploit test, run on the "
                  "original code and again on the patched code; the checks below say what each run showed.", ""]
         for n, x in enumerate(fixes, 1):
@@ -167,10 +167,10 @@ def _pr_body(run_id: int, res: dict) -> str:
             elif sec.get("path"):
                 lines.append(f"- Exploit test: `{sec['path']}`")
             lines.append("")
-        lines += ["Download the full report from the SecureFix run.", "", "This change was written by an AI agent. Please review it before merging."]
+        lines += ["Download the full report from the KAIZEN run.", "", "This change was written by an AI agent. Please review it before merging."]
         return "\n".join(lines)
     f, rc = res.get("finding") or {}, res.get("root_cause") or {}
-    lines = [f"**SecureFix agent run {run_id}: {res.get('verdict', '').upper()}**", "",
+    lines = [f"**KAIZEN agent run {run_id}: {res.get('verdict', '').upper()}**", "",
              f"**{f.get('title')}** ({f.get('cwe') or '-'}, {f.get('severity')}) in `{f.get('file')}` line {f.get('line')}.",
              "", rc.get("plain") or "", "", "**Proof**"]
     for g in res.get("gates") or []:
@@ -179,6 +179,6 @@ def _pr_body(run_id: int, res: dict) -> str:
     sec = res.get("security_test") or {}
     if sec.get("path"):
         lines += ["", f"The exploit test `{sec['path']}` is included: it failed on the original code and passes with this patch."]
-    lines += ["", "Download the full report from the SecureFix run.",
+    lines += ["", "Download the full report from the KAIZEN run.",
               "", "This change was written by an AI agent. Please review it before merging."]
     return "\n".join(lines)

@@ -1,4 +1,4 @@
-# SecureFix: Scope
+# KAIZEN: Scope
 
 **Hackathon:** HackOnTrack · **Domain:** Cyber Security
 **Problem statement:** Given a vulnerable open-source repository, build an AI agent that locates the security bug, writes a patch, and proves the fix does not break the existing test suite.

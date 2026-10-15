@@ -1,4 +1,4 @@
-"""SecureFix engine: Find -> Hack -> Fix -> Prove.
+"""KAIZEN engine: Find -> Hack -> Fix -> Prove.
 
 Public entry points:
 - run_scan(ctx, on_step)      run one commit through the four steps and return a report dict

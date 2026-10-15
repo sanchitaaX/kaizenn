@@ -261,7 +261,7 @@ def draft_brief(repo_id: int, user: dict = Depends(require_user)):
 @router.post("/repos/{repo_id}/brief/github")
 def push_brief(repo_id: int, payload: PushBriefIn | None = None, user: dict = Depends(require_user)):
     """Write the project brief into the repository as BRIEF.md on its default branch, so it is kept with the code.
-    `body` is the reviewed draft; without it the notes are laid out as they are. Only a BRIEF.md that SecureFix
+    `body` is the reviewed draft; without it the notes are laid out as they are. Only a BRIEF.md that KAIZEN
     wrote is replaced; another file with that name is left alone."""
     from app import github
     from app.fleet import briefdoc
@@ -284,7 +284,7 @@ def push_brief(repo_id: int, payload: PushBriefIn | None = None, user: dict = De
     try:
         current = github.get_file(token, r["full_name"], briefdoc.PATH, branch)
         if current and not briefdoc.is_ours(current[0]):
-            raise HTTPException(status_code=409, detail="This repository already has its own BRIEF.md, so SecureFix left it "
+            raise HTTPException(status_code=409, detail="This repository already has its own BRIEF.md, so KAIZEN left it "
                                                         "alone. Rename it, or add the brief to it by hand.")
         if current and current[0] == doc:
             return {"path": briefdoc.PATH, "branch": branch, "unchanged": True,
@@ -331,9 +331,9 @@ def fix_repo(repo_id: int, user: dict = Depends(require_user)):
     busy = next((x for x in controller.recent(user["login"], 50)
                  if x["status"] == "running" and x["repo"].lower() == r["full_name"].lower()), None)
     if busy:
-        return {"fixed": 0, "run": busy["id"], "message": "The SecureFix agent is already fixing this repository."}
+        return {"fixed": 0, "run": busy["id"], "message": "The KAIZEN agent is already fixing this repository."}
     run_id = controller.start(user["login"], r["full_name"], token, brief=store.brief_for(_workspaces(user), r["full_name"]))
-    return {"fixed": 0, "run": run_id, "message": "The SecureFix agent is fixing this repository."}
+    return {"fixed": 0, "run": run_id, "message": "The KAIZEN agent is fixing this repository."}
 
 
 @router.get("/repos/{repo_id}/report.pdf")
@@ -425,9 +425,9 @@ def decide(fix_id: int, body: DecisionIn, user: dict = Depends(require_user)):
         message = "Fix discarded. The vulnerability is still open."
     elif vuln["source"] == "demo":
         short = hashlib.sha1(f"{fix_id}:{vuln['id']}".encode()).hexdigest()[:7]
-        fix = store.decide_fix(fix_id, "committed", "fixed", branch=f"securefix/vuln-{vuln['id']}",
+        fix = store.decide_fix(fix_id, "committed", "fixed", branch=f"kaizen/vuln-{vuln['id']}",
                                commit_sha=short)
-        message = f"Committed as {short} on securefix/vuln-{vuln['id']}. The risk score is updated."
+        message = f"Committed as {short} on kaizen/vuln-{vuln['id']}. The risk score is updated."
     else:
         token = user_token(user)
         if not token:

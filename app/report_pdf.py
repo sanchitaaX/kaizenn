@@ -137,7 +137,7 @@ def _footer(canvas, doc):
     canvas.saveState()
     canvas.setFont(SANS, 7.5)
     canvas.setFillColor(FAINT)
-    canvas.drawString(20 * mm, 12 * mm, f"SecureFix technical report  {doc.title}")
+    canvas.drawString(20 * mm, 12 * mm, f"KAIZEN technical report  {doc.title}")
     canvas.drawRightString(190 * mm, 12 * mm, f"Page {doc.page}")
     canvas.setStrokeColor(LINE)
     canvas.line(20 * mm, 15 * mm, 190 * mm, 15 * mm)
@@ -148,7 +148,7 @@ def render(report: dict) -> bytes:
     f, s = report["facts"], report["sections"]
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=18 * mm,
-                            bottomMargin=20 * mm, title=f["report_id"], author="SecureFix",
+                            bottomMargin=20 * mm, title=f["report_id"], author="KAIZEN",
                             subject=f"Security review of {f['repo']} @ {f['commit']['short_sha']}")
     out = []
     p = lambda text, style="body": Paragraph(_t(text), STYLES[style])  # noqa: E731
@@ -285,7 +285,7 @@ def render(report: dict) -> bytes:
                                  STYLES["bullet"], bulletText="\u2022"))
 
     out.append(Spacer(1, 10))
-    out.append(p("SecureFix does not run your application's code outside its sandbox. Every statement in this "
+    out.append(p("KAIZEN does not run your application's code outside its sandbox. Every statement in this "
                  "report comes from the recorded review; anything not recorded is marked as such.", "small"))
 
     doc.build(out, onFirstPage=_footer, onLaterPages=_footer)

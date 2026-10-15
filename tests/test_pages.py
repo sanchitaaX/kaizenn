@@ -107,3 +107,23 @@ def test_new_users_default_to_student_with_learn_mode(client):
     user = db.upsert_github_user({"login": "fresh-dev", "id": 7, "name": "Fresh Dev"})
     assert user["role"] == "student"
     assert user["learn_mode"] is True and user["report_mode"] is False
+
+
+def test_pages_are_branded_kaizen(demo):
+    for path in APP_PAGES:
+        html = demo.get(path).text
+        assert "KAIZEN" in html, path
+        assert "SecureFix" not in html, path
+        assert 'rel="icon"' in html and "/static/img/kaizen.svg" in html, path
+    assert "window.Kaizen" in demo.get("/static/js/app.js").text
+
+
+def test_login_page_is_branded_kaizen(client):
+    html = client.get("/login").text
+    assert "KAIZEN" in html and "SecureFix" not in html
+
+
+def test_favicon_route_serves_the_mark(client):
+    r = client.get("/favicon.ico")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
+    assert "#5e6ad2" in r.text

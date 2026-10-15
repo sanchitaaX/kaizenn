@@ -9,8 +9,8 @@
   const form = document.getElementById("brief-form");
   if (!form) return;
 
-  const toast = (msg) => window.SecureFix && window.SecureFix.toast(msg);
-  const api = (path, options) => window.SecureFix.api(path, options);
+  const toast = (msg) => window.Kaizen && window.Kaizen.toast(msg);
+  const api = (path, options) => window.Kaizen.api(path, options);
 
   const fields = {
     summary: form.elements.summary,

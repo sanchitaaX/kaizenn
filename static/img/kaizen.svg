@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="KAIZEN">
+  <rect width="120" height="120" rx="28" fill="#5e6ad2"/>
+  <rect x="32" y="28" width="14" height="64" rx="3" fill="#fff"/>
+  <polygon points="48,60 78,28 93,28 62,62" fill="#fff"/>
+  <polygon points="54,56 68,56 92,92 77,92" fill="#fff"/>
+  <circle cx="96" cy="22" r="6" fill="#ff8a7a"/>
+</svg>

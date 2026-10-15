@@ -24,7 +24,7 @@ def render(run: dict, user: dict) -> bytes:
     buf = io.BytesIO()
     report_id = f"SF-AGENT-{run['id']}"
     doc, page = _doc(buf, f"{run['repo']} agent run {run['id']}", f"Security repair of {run['repo']}",
-                     f"SecureFix agent evidence report  {report_id}")
+                     f"KAIZEN agent evidence report  {report_id}")
     out: list = []
     _head(out, "Security repair report", f"{run['repo']}  ·  commit {(ws.get('sha') or '')[:12]}", report_id)
 
