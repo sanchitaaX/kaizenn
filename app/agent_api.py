@@ -71,7 +71,11 @@ def start_run(body: RunIn, user: dict = Depends(require_user)):
         repo = _repo_name(body.repo)
     if not token:
         raise HTTPException(status_code=403, detail="Sign in with GitHub so the agent can download repositories.")
-    run_id = controller.start(user["login"], repo, token, ref=(body.ref or None), target=target, vuln_id=body.vuln_id)
+    from app.fleet_api import _workspaces
+
+    brief = store.brief_for(_workspaces(user), repo)
+    run_id = controller.start(user["login"], repo, token, ref=(body.ref or None), target=target, vuln_id=body.vuln_id,
+                              brief=brief)
     return {"id": run_id}
 
 

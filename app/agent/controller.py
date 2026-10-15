@@ -156,7 +156,8 @@ def _tools() -> dict:
             "model": model.model_name(), "isolation": "temporary folder, stripped environment (no container)"}
 
 
-def execute(run_id: int, token: str | None, target: dict | None = None, local: Path | None = None) -> None:
+def execute(run_id: int, token: str | None, target: dict | None = None, local: Path | None = None,
+            brief: str = "") -> None:
     """Run the whole pipeline for one run (blocking). `target` is a known finding (dashboard alert)."""
     run = Run(run_id)
     row = get(run_id)
@@ -169,6 +170,8 @@ def execute(run_id: int, token: str | None, target: dict | None = None, local: P
         run.step("intake", "running", "Downloading the repository")
         ws = workspace.from_folder(local, repo=row["repo"]) if local else \
             workspace.from_github(token, row["repo"], row["ref"])
+        ws.brief = brief
+        res["brief"] = brief
         langs = ws.languages()
         res["workspace"] = {"repo": ws.repo, "ref": ws.ref, "sha": ws.sha, "files": len(ws.files()), "languages": langs}
         run.step("intake", "done", f"{ws.repo} @ {ws.sha[:7]} · {len(ws.files())} source files · "
@@ -445,12 +448,12 @@ def _failure_output(rec: Recorder) -> str:
 
 
 def start(login: str, repo: str, token: str | None, ref: str | None = None, target: dict | None = None,
-          vuln_id: int | None = None) -> int:
+          vuln_id: int | None = None, brief: str = "") -> int:
     run_id = create(login, repo, ref, vuln_id)
 
     def work():
         with _slots:
-            execute(run_id, token, target)
+            execute(run_id, token, target, brief=brief)
 
     threading.Thread(target=work, name=f"agent-run-{run_id}", daemon=True).start()
     return run_id

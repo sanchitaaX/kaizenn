@@ -489,3 +489,24 @@ def test_real_repository_runs_its_own_tests_before_and_after(monkeypatch, tmp_pa
     assert checks["tests"]["status"] == "fail", checks["tests"]
     assert checks["tests"]["after"]["failed"] == 1
     assert prove.verdict(list(checks.values())) == "broken"
+
+
+def test_project_brief_is_saved_and_shown(demo):
+    repo = demo.get("/api/fleet/repos?source=demo&min_score=0").json()["items"][0]
+    r = demo.put(f"/api/fleet/repos/{repo['id']}/brief", json={"brief": "  Billing API; invoices must stay PDF.  "})
+    assert r.status_code == 200 and r.json()["brief"] == "Billing API; invoices must stay PDF."
+    assert demo.get(f"/api/fleet/repos/{repo['id']}").json()["repo"]["brief"] == "Billing API; invoices must stay PDF."
+    assert demo.put("/api/fleet/repos/999999/brief", json={"brief": "x"}).status_code == 404
+    assert demo.put(f"/api/fleet/repos/{repo['id']}/brief", json={"brief": "x" * 2001}).status_code == 422
+
+
+def test_fix_all_saves_prepared_fixes_for_the_listed_demo_repos(demo):
+    listed = demo.get("/api/fleet/repos?source=demo&min_score=100").json()["items"]
+    assert listed
+    open_before = sum(1 for v in demo.get(f"/api/fleet/repos/{listed[0]['id']}").json()["vulns"] if v["status"] == "open")
+    out = demo.post("/api/fleet/fix-all", json={"source": "demo", "min_score": 100}).json()
+    assert out["fixed"] >= open_before > 0 and out["runs"] == []
+    statuses = {v["status"] for v in demo.get(f"/api/fleet/repos/{listed[0]['id']}").json()["vulns"]}
+    assert "open" not in statuses
+    again = demo.post("/api/fleet/fix-all", json={"source": "demo", "min_score": 100}).json()
+    assert again["fixed"] == 0 and "already has a fix" in again["message"]

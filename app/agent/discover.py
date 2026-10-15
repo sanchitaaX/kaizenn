@@ -202,7 +202,7 @@ def _batches(ws: Workspace, cands: list[dict]) -> list[tuple[list[dict], list[st
 def triage(ws: Workspace, cands: list[dict], log: model.CallLog) -> list[dict]:
     real = []
     for batch, blocks in _batches(ws, cands):
-        data = model.ask("discover", TRIAGE_TASK, f"Repository: {ws.repo}\n\n" + "\n\n".join(blocks), log)
+        data = model.ask("discover", TRIAGE_TASK, f"Repository: {ws.repo}\n{model.brief(ws)}\n" + "\n\n".join(blocks), log)
         by_id = {c["id"]: c for c in batch}
         for r in model.as_list(data.get("results")):
             c = by_id.get(str(r.get("id")))
@@ -230,7 +230,7 @@ def review(ws: Workspace, log: model.CallLog) -> list[dict]:
         size += len(block)
     if not out:
         return []
-    data = model.ask("review", REVIEW_TASK, f"Repository: {ws.repo}\n\n" + "\n\n".join(out), log)
+    data = model.ask("review", REVIEW_TASK, f"Repository: {ws.repo}\n{model.brief(ws)}\n" + "\n\n".join(out), log)
     found = []
     for r in model.as_list(data.get("findings")):
         f, line = str(r.get("file") or ""), int(r.get("line") or 0) if str(r.get("line") or "0").isdigit() else 0

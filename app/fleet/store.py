@@ -130,6 +130,8 @@ def _tx():
                     cols = {r["name"] for r in conn.execute("PRAGMA table_info(fleet_repos)")}
                     if "pushed_at" not in cols:  # databases made before the push watcher
                         conn.execute("ALTER TABLE fleet_repos ADD COLUMN pushed_at TEXT")
+                    if "brief" not in cols:  # databases made before project briefs
+                        conn.execute("ALTER TABLE fleet_repos ADD COLUMN brief TEXT NOT NULL DEFAULT ''")
                     fix_cols = {r["name"] for r in conn.execute("PRAGMA table_info(fleet_fixes)")}
                     if "proof" not in fix_cols:  # databases made before proofs
                         conn.execute("ALTER TABLE fleet_fixes ADD COLUMN proof TEXT")
@@ -287,6 +289,35 @@ def get_repo(repo_id: int, workspaces: list[str]) -> dict | None:
             (repo_id,)).fetchall()
     return {"repo": _repo_dict(row), "vulns": [_vuln_dict(v) for v in vulns]}
 
+
+
+def set_brief(repo_id: int, workspaces: list[str], brief: str) -> bool:
+    """Save the owner's project brief for a repository (what it does, what must keep working)."""
+    where, args = _where(workspaces)
+    with _tx() as conn:
+        cur = conn.execute(f"UPDATE fleet_repos SET brief = ? WHERE id = ? AND {where}", [brief, repo_id, *args])
+        return cur.rowcount > 0
+
+
+def brief_for(workspaces: list[str], full_name: str) -> str:
+    """The project brief saved for a repository by name, or ''."""
+    where, args = _where(workspaces)
+    with _tx() as conn:
+        row = conn.execute(f"SELECT brief FROM fleet_repos WHERE full_name = ? COLLATE NOCASE AND {where} "
+                           "AND brief != '' LIMIT 1", [full_name, *args]).fetchone()
+    return row["brief"] if row else ""
+
+
+def open_vulns(repo_id: int) -> list[dict]:
+    """Open problems with no fix written yet, most serious first."""
+    with _tx() as conn:
+        rows = conn.execute(
+            f"""SELECT v.*, r.full_name, r.language, r.workspace, r.default_branch, r.public
+                FROM fleet_vulns v JOIN fleet_repos r ON r.id = v.repo_id
+                WHERE v.repo_id = ? AND v.status = 'open'
+                  AND NOT EXISTS (SELECT 1 FROM fleet_fixes f WHERE f.vuln_id = v.id AND f.status IN ('draft', 'saved'))
+                ORDER BY {SEVERITY_SQL}, v.first_seen_at""", (repo_id,)).fetchall()
+    return [_vuln_dict(r) for r in rows]
 
 def get_vuln(vuln_id: int, workspaces: list[str]) -> dict | None:
     where, args = _where(workspaces, "r.")
@@ -457,14 +488,17 @@ def save_github_repo(login: str, repo: dict, alerts: list[dict] | None, scan_sta
         # Keep findings that already have a pull request or a fix; replace the rest with what GitHub says now.
         conn.execute("DELETE FROM fleet_vulns WHERE repo_id = ? AND status = 'open' AND id NOT IN "
                      "(SELECT vuln_id FROM fleet_fixes)", (repo_id,))
-        kept = {r["alert_number"] for r in conn.execute(
-            "SELECT alert_number FROM fleet_vulns WHERE repo_id = ?", (repo_id,))}
+        rows = conn.execute("SELECT alert_number, file, line, type FROM fleet_vulns WHERE repo_id = ?", (repo_id,)).fetchall()
+        kept = {r["alert_number"] for r in rows if r["alert_number"] is not None}
+        kept_at = {(r["file"], r["line"], r["type"]) for r in rows}  # SecureFix's own findings have no alert number
         conn.executemany(
             """INSERT INTO fleet_vulns (repo_id, type, title, severity, cwe, file, line, description, source,
-                   alert_number, alert_url, status, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'codeql', ?, ?, 'open', ?)""",
+                   alert_number, alert_url, status, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)""",
             [(repo_id, a["type"], a["title"], a["severity"], a["cwe"], a["file"], a["line"], a["description"],
-              a["alert_number"], a["alert_url"], a["first_seen_at"] or db.iso(now))
-             for a in (alerts or []) if a["alert_number"] not in kept])
+              a.get("source") or "codeql", a["alert_number"], a["alert_url"], a["first_seen_at"] or db.iso(now))
+             for a in (alerts or [])
+             if (a["alert_number"] not in kept if a["alert_number"] is not None
+                 else (a["file"], a["line"], a["type"]) not in kept_at)])
         _recompute(conn, repo_id, now)
     return repo_id
 

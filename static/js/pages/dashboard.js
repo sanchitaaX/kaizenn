@@ -494,6 +494,7 @@
     report.setAttribute("download", "");
     cell.replaceChildren(h("div", "detail", [
       major.length ? list : h("p", "detail-empty", "No critical or high problems in this repository."),
+      briefBox(data.repo),
       h("div", "detail-actions", [all, report]),
     ]));
   }
@@ -586,6 +587,7 @@
     const stat = (n, label) => h("div", "drawer-stat", [h("strong", null, fmt(n)), h("span", null, label)]);
     body.append(h("div", "drawer-stats", [stat(r.open_critical, "Critical"), stat(r.open_high, "High"),
       stat(r.open_medium, "Medium"), stat(r.open_low, "Low")]));
+    body.append(briefBox(r));
     if (r.scan_status === "no_code_scanning") {
       body.append(h("p", "fix-error", "Code scanning is not turned on for this repository, so SecureFix cannot see its problems yet. Turn on CodeQL in the repository's Settings, Code security."));
     }
@@ -599,6 +601,33 @@
     open.forEach((v) => body.append(vulnCard(v)));
     if (done.length) body.append(h("p", "drawer-group", `Fixed (${done.length})`));
     done.slice(0, 20).forEach((v) => body.append(vulnCard(v)));
+  }
+
+  // The owner's project brief: sent with every fix for this repository so the AI knows what the code is for.
+  function briefBox(r) {
+    const ta = h("textarea", "input");
+    ta.maxLength = 2000;
+    ta.value = r.brief || "";
+    ta.setAttribute("aria-label", "Project brief");
+    ta.placeholder = "What does this project do, and what must keep working? For example: a Flask API for school " +
+      "timetables; teachers sign in with Google; the /export endpoint must keep returning CSV.";
+    const saved = h("span", "brief-saved", r.brief ? "Saved" : "");
+    const save = h("button", "btn btn-secondary btn-sm", "Save brief");
+    save.type = "button";
+    ta.addEventListener("input", () => { saved.textContent = ""; });
+    save.addEventListener("click", async () => {
+      save.disabled = true;
+      try {
+        const out = await SF.api(`/api/fleet/repos/${r.id}/brief`, { method: "PUT", body: { brief: ta.value } });
+        r.brief = out.brief;
+        saved.textContent = out.brief ? "Saved" : "Cleared";
+        SF.toast(out.brief ? "Project brief saved. Fixes for this repository will use it." : "Project brief cleared.");
+      } catch (err) { SF.toast(err.message); }
+      finally { save.disabled = false; }
+    });
+    return h("div", "brief", [
+      h("div", "brief-head", [h("strong", null, "Project brief"), h("span", "brief-hint", "Sent with every fix so the AI understands the project")]),
+      ta, h("div", "brief-actions", [saved, save])]);
   }
 
   const STATUS_TEXT = { fix_saved: "Fix saved, waiting for review", pr_open: "Pull request open", fixed: "Fixed" };
@@ -916,6 +945,23 @@
     $("f-q").value = ""; $("f-band").value = ""; $("f-team").value = "";
     document.querySelectorAll(".band-seg").forEach((el) => el.classList.remove("is-active"));
     loadRepos();
+  });
+
+  // Fix all works on the repositories this view lists: demo ones get their prepared fixes, saved for review;
+  // GitHub ones get one security repair agent run each (it fixes up to three problems and uses the project brief).
+  $("fix-all").addEventListener("click", async () => {
+    const btn = $("fix-all");
+    if (!window.confirm("Fix the repositories listed here? Demo repositories get their prepared fixes, saved for " +
+      "review. Each of your GitHub repositories gets a SecureFix agent run (up to 5 at a time).")) return;
+    btn.disabled = true;
+    try {
+      const out = await SF.api("/api/fleet/fix-all", { method: "POST", body: { source: S.source,
+        owners: S.owners.join(","), q: S.q, band: S.band, team: S.team, sort: S.sort, min_score: S.minScore || 0 } });
+      SF.toast(out.message);
+      await Promise.all([loadSummary(), loadRepos()]);
+      if (out.runs.length) SF.openChat("/chat?embed=1&run=" + out.runs[0].id);
+    } catch (err) { SF.toast(err.message); }
+    finally { btn.disabled = false; }
   });
 
   // ------------------------------------------------------------------ owner picker

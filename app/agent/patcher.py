@@ -37,7 +37,7 @@ def propose(ws: Workspace, finding: dict, cause: dict, log: model.CallLog, feedb
     else:
         start = max(1, finding["line"] - WINDOW)
         shown = "\n".join(lines[start - 1:finding["line"] + WINDOW])
-    prompt = (f"Repository: {ws.repo}\nVulnerability: {finding['title']} ({finding.get('cwe') or '-'}) at "
+    prompt = (f"Repository: {ws.repo}\n{model.brief(ws)}Vulnerability: {finding['title']} ({finding.get('cwe') or '-'}) at "
               f"{finding['file']}:{finding['line']}\nRoot cause: {cause.get('technical') or cause.get('plain')}\n"
               f"Fix strategy: {cause.get('fix_strategy') or '-'}\nMust keep working: {cause.get('must_keep') or '-'}\n\n"
               f"File {finding['file']} (lines from {start}):\n" + model.untrusted(finding["file"], model.numbered(shown, start)))

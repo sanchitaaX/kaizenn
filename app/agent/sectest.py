@@ -75,7 +75,7 @@ def write(ws: Workspace, finding: dict, cause: dict, block: str, log: model.Call
         hint = ("ES modules: import x from '../path.js' (TypeScript files can be imported with their .ts path; "
                 "Node strips the types)" if style == "esm" else "CommonJS: const x = require('../path')")
         task = TASK_JS.replace("{module}", style).replace("{module_hint}", hint).replace("{ext}", ext)
-    prompt = (f"Repository: {ws.repo}\nVulnerability: {finding['title']} ({finding.get('cwe') or '-'}) in "
+    prompt = (f"Repository: {ws.repo}\n{model.brief(ws)}Vulnerability: {finding['title']} ({finding.get('cwe') or '-'}) in "
               f"{finding['file']}:{finding['line']}, function {cause.get('function') or '?'}\n"
               f"How it is exploited: {cause.get('technical') or cause.get('plain')}\n"
               f"Malicious input to use: {cause.get('exploit_input') or '-'}\n"

@@ -60,6 +60,7 @@ class Workspace:
     root: Path                      # the repository files
     originals: dict[str, str] = field(default_factory=dict)  # rel path -> original text of changed files
     _files: list[str] | None = None
+    brief: str = ""                 # the owner's project brief, sent with every prompt
 
     # ------------------------------------------------------------------ files
 

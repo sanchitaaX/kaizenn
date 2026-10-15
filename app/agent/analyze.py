@@ -82,7 +82,7 @@ def root_cause(ws: Workspace, finding: dict, log: model.CallLog) -> dict:
     name, start, block = enclosing(ws, finding["file"], finding["line"])
     calls = callers(ws, name, finding["file"])
     call_text = "\n".join(f"{c['file']}:{c['line']}: {c['code']}" for c in calls) or "(no other callers found)"
-    prompt = (f"Repository: {ws.repo}\nFinding: {finding['title']} ({finding.get('cwe') or 'no CWE'}), "
+    prompt = (f"Repository: {ws.repo}\n{model.brief(ws)}Finding: {finding['title']} ({finding.get('cwe') or 'no CWE'}), "
               f"severity {finding['severity']}, at {finding['file']}:{finding['line']}\n"
               f"Triage note: {finding.get('reason') or finding.get('note') or '-'}\n\n"
               f"Vulnerable code ({finding['file']}, from line {start}):\n"

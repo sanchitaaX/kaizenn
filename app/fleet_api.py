@@ -44,6 +44,21 @@ class SettingsIn(BaseModel):
     auto_scan: bool | None = None
 
 
+class BriefIn(BaseModel):
+    brief: str = Field("", max_length=2000)
+
+
+class FixAllIn(BaseModel):
+    """The dashboard's current view: Fix all works on the repositories it lists."""
+    source: Source = "all"
+    owners: str = Field("", max_length=4000)
+    q: str = Field("", max_length=100)
+    band: Band = ""
+    team: str = Field("", max_length=100)
+    sort: Sort = "risk"
+    min_score: int = Field(0, ge=0, le=100)
+
+
 class CheckIn(BaseModel):
     repos: list[str] = Field(..., min_length=1, max_length=check.MAX_REPOS)
 
@@ -197,6 +212,65 @@ def repo_detail(repo_id: int, user: dict = Depends(require_user)):
     return found
 
 
+@router.put("/repos/{repo_id}/brief")
+def save_brief(repo_id: int, body: BriefIn, user: dict = Depends(require_user)):
+    """The owner's project brief: what the repository does and what must keep working. Sent with every fix."""
+    brief = body.brief.strip()
+    if not store.set_brief(repo_id, _workspaces(user), brief):
+        raise HTTPException(status_code=404, detail="That repository was not found.")
+    return {"brief": brief}
+
+
+MAX_FIX_ALL_REPOS = 50   # repositories Fix all looks at (riskiest first in the current view)
+MAX_FIX_ALL_RUNS = 5     # agent runs one Fix all may start on real repositories (each fixes up to 3 problems)
+
+
+@router.post("/fix-all")
+def fix_all(body: FixAllIn, user: dict = Depends(require_user)):
+    """Fix the repositories in the current view. Demo repositories get their prepared fixes, saved for review;
+    real repositories get one security repair agent run each, with the repository's project brief."""
+    from app.agent import controller
+
+    ws = _workspaces(user, body.source)
+    listing = store.list_repos(ws, body.q, body.band, body.team, body.sort, 1, MAX_FIX_ALL_REPOS, body.min_score,
+                               _owners(body.owners))
+    token = user_token(user)
+    running = {r["repo"].lower() for r in controller.recent(user["login"], 50) if r["status"] == "running"}
+    fixed, runs, skipped = 0, [], []
+    targets = [r for r in listing["items"] if r["open_total"]]
+    for r in targets:
+        if r["source"] == "demo":
+            for v in store.open_vulns(r["id"]):
+                try:
+                    made = fixer.demo_fix(v)
+                except fixer.FixError:
+                    continue
+                fix = store.create_fix(v["id"], user["login"], **made)
+                store.decide_fix(fix["id"], "saved", "fix_saved")
+                fixed += 1
+        elif not token:
+            skipped.append(r["full_name"])
+        elif r["full_name"].lower() in running:
+            continue
+        elif len(runs) < MAX_FIX_ALL_RUNS:
+            runs.append({"id": controller.start(user["login"], r["full_name"], token, brief=r.get("brief") or ""),
+                         "repo": r["full_name"]})
+        else:
+            skipped.append(r["full_name"])
+    parts = []
+    if fixed:
+        parts.append(f"{fixed} prepared fixes saved for review")
+    if runs:
+        parts.append(f"the SecureFix agent is fixing {len(runs)} repositor{'y' if len(runs) == 1 else 'ies'}")
+    if skipped:
+        parts.append(f"{len(skipped)} left for the next Fix all")
+    text = "; ".join(parts)
+    message = (text[:1].upper() + text[1:] + "." if parts else
+               "Every problem listed already has a fix waiting for review." if targets else
+               "Nothing to fix in the repositories listed.")
+    return {"repos": len(targets), "fixed": fixed, "runs": runs, "skipped": skipped, "message": message}
+
+
 @router.get("/repos/{repo_id}/report.pdf")
 def repo_report(repo_id: int, user: dict = Depends(require_user)):
     """One repository's security report."""
@@ -227,7 +301,7 @@ def make_fix(vuln_id: int, user: dict = Depends(require_user)):
                 token = user_token(user)
                 if not token:
                     raise fixer.FixError("Sign in with GitHub to fix this repository.")
-                made = fixer.ai_fix(token, vuln)
+                made = fixer.ai_fix(token, vuln, store.brief_for(_workspaces(user), vuln["full_name"]))
         except fixer.FixError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         fix = store.create_fix(vuln_id, user["login"], **made)

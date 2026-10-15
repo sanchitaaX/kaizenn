@@ -18,7 +18,7 @@ from datetime import timedelta
 
 from app import db, github
 from app.config import settings
-from app.fleet import store, sync
+from app.fleet import selfscan, store, sync
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +35,12 @@ def read_repo(login: str, token: str, repo: dict) -> str:
     try:
         alerts = github.list_code_scanning_alerts(token, repo["full_name"])
     except github.GitHubError as exc:
+        if exc.status_code in (403, 404):  # code scanning off: scan the code with SecureFix's own scanners
+            try:
+                store.save_github_repo(login, repo, selfscan.scan(token, repo), "scanned")
+                return "scanned"
+            except Exception:
+                log.exception("SecureFix scan of %s failed", repo["full_name"])
         status = "no_code_scanning" if exc.status_code in (403, 404) else "error"
         store.save_github_repo(login, repo, None, status)
         return status
