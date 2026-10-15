@@ -12,8 +12,11 @@
      data-report="{{ 1 if user.report_mode else 0 }}">
 
   <aside class="chat-sidebar" id="sidebar" aria-label="Earlier checks">
-    <button class="btn btn-primary btn-block" id="new-chat" type="button">{{ icon('spark', 16) }}New analysis</button>
-    <h2 class="chat-sidebar-title" id="history-title">Recent checks</h2>
+    <button class="new-row" id="new-chat" type="button">
+      <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+      New analysis
+    </button>
+    <h2 class="chat-sidebar-title" id="history-title">Recent</h2>
     <nav class="history" id="history" aria-labelledby="history-title">
       <span class="skeleton skeleton-line-lg"></span>
       <span class="skeleton skeleton-line-sm"></span>
@@ -31,12 +34,18 @@
     </div>
 
     <form class="composer" id="composer" autocomplete="off">
-      <div class="composer-box" id="composer-box">
+      <div class="composer-box is-off" id="composer-box">
         <div class="composer-attachments" id="attachments" hidden></div>
-        <div class="composer-row">
-          <button class="btn btn-ghost btn-icon" id="attach" type="button" aria-label="Attach a document" hidden>{{ icon('paperclip', 18) }}</button>
-          <textarea class="composer-input" id="input" rows="1" data-autogrow aria-label="Your message" placeholder="Choose a repository to begin" disabled></textarea>
-          <button class="btn btn-primary btn-icon" id="send" type="submit" aria-label="Send" disabled>{{ icon('send', 18) }}</button>
+        <textarea class="composer-input" id="input" rows="2" data-autogrow aria-label="Your message" placeholder="Ask SecureFix to check a commit..." disabled></textarea>
+        <div class="composer-bar">
+          <button class="chip repo-chip" id="repo-chip" type="button" aria-haspopup="listbox" aria-expanded="false" title="Choose a repository">
+            {{ icon('repo', 14) }}<span class="chip-label" id="repo-chip-label">Choose a repository</span>
+            <svg class="icon chip-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <button class="round-btn" id="attach" type="button" aria-label="Attach a document" title="Attach a brief (.txt, .md, .pdf, .docx)" disabled>{{ icon('paperclip', 16) }}</button>
+          <span class="mode-chip" id="mode-chip"></span>
+          <span class="spacer"></span>
+          <button class="send-btn" id="send" type="submit" aria-label="Send" disabled>{{ icon('send', 16) }}</button>
         </div>
       </div>
       <p class="composer-hint">Enter to send. Shift and Enter for a new line.</p>

@@ -11,7 +11,13 @@ USER = {
     "role": "student",           # "student" | "professional"
     "report_mode": False,        # professional default
     "learn_mode": True,          # student default
-    "repos": ["carvelle/marks-portal"],
+    "repos": [
+        "carvelle/marks-portal",
+        "carvelle/hostel-booking",
+        "carvelle/canteen-api",
+        "carvelle/library-app",
+        "carvelle/attendance-tracker",
+    ],
 }
 
 REPO = {
@@ -19,6 +25,46 @@ REPO = {
     "default_branch": "main",
     "last_synced": "2 minutes ago",
 }
+
+# More demo repositories for the demo user, so the chat can show a "top 3" and an "All repositories" list.
+# Their commits are served by the demo sync (db.demo_sync) the first time a repo is opened, as New commits,
+# and a scan of any of them replays a calm "safe" result (engine.replay.fixture_report).
+EXTRA_REPOS = [
+    {
+        "full_name": "carvelle/hostel-booking", "default_branch": "main",
+        "commits": [
+            {"sha": "a1c93e7", "author": "rahul-dev", "message": "Add room availability calendar", "time": "25 min ago"},
+            {"sha": "3be84d0", "author": "priya-codes", "message": "Send a booking confirmation email", "time": "2 hr ago"},
+            {"sha": "d702f5a", "author": "aman-k", "message": "Add a warden approval step", "time": "Yesterday"},
+            {"sha": "6f1b2c9", "author": "dhruv-carvelle", "message": "Set up the Flask project and login", "time": "3 days ago"},
+        ],
+    },
+    {
+        "full_name": "carvelle/canteen-api", "default_branch": "main",
+        "commits": [
+            {"sha": "8e5d0a1", "author": "aman-k", "message": "Add the menu endpoint with daily specials", "time": "1 hr ago"},
+            {"sha": "24c7b9f", "author": "priya-codes", "message": "Add order status updates", "time": "5 hr ago"},
+            {"sha": "b90e3d6", "author": "rahul-dev", "message": "Cache the menu for faster loads", "time": "Yesterday"},
+        ],
+    },
+    {
+        "full_name": "carvelle/library-app", "default_branch": "main",
+        "commits": [
+            {"sha": "17d8f4c", "author": "dhruv-carvelle", "message": "Add book search by title", "time": "50 min ago"},
+            {"sha": "c5a6e82", "author": "priya-codes", "message": "Show due dates on the borrowed list", "time": "4 hr ago"},
+            {"sha": "0d39b7a", "author": "aman-k", "message": "Add return and renew buttons", "time": "2 days ago"},
+            {"sha": "e8f2c14", "author": "rahul-dev", "message": "Import the starting book catalogue", "time": "4 days ago"},
+        ],
+    },
+    {
+        "full_name": "carvelle/attendance-tracker", "default_branch": "main",
+        "commits": [
+            {"sha": "5a07d3e", "author": "rahul-dev", "message": "Mark attendance from the class list", "time": "3 hr ago"},
+            {"sha": "f46b8c2", "author": "aman-k", "message": "Export weekly attendance as CSV", "time": "Yesterday"},
+            {"sha": "92e1a0d", "author": "priya-codes", "message": "Add a low-attendance warning", "time": "2 days ago"},
+        ],
+    },
+]
 
 MEMBERS = [
     {"login": "dhruv-carvelle", "name": "Dhruv", "avatar_url": "/avatar/dhruv-carvelle.svg"},
@@ -216,6 +262,10 @@ MISTAKES = [
 
 def member(login):
     return next((m for m in MEMBERS if m["login"] == login), {"login": login, "name": login, "avatar_url": f"/avatar/{login}.svg"})
+
+
+def extra_repo(full_name):
+    return next((r for r in EXTRA_REPOS if r["full_name"] == full_name), None)
 
 
 def state_counts(commits=None):

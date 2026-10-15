@@ -21,6 +21,9 @@
   const fileInput = $("file");
   const attachments = $("attachments");
   const toggleBtn = document.querySelector("[data-toggle-sidebar]");
+  const repoChip = $("repo-chip");
+  const repoChipLabel = $("repo-chip-label");
+  const modeChip = $("mode-chip");
 
   const FIRST_NAME = (root.dataset.name || "").trim().split(/\s+/)[0] || "";
   const MODES = { learn: root.dataset.learn === "1", report: root.dataset.report === "1" };
@@ -47,6 +50,7 @@
     history: [],
     historyLoaded: false,
     historyFailed: false,
+    repos: null,       // every repository the user can pick (loaded once)
   };
   let composerMode = "off"; // off | brief | ask
 
@@ -64,6 +68,9 @@
     external: '<path d="M14 4h6v6"/><path d="M20 4 11 13"/><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',
     x: '<path d="M6 6l12 12"/><path d="M18 6 6 18"/>',
     chevron: '<path d="m9 6 6 6-6 6"/>',
+    down: '<path d="m6 9 6 6 6-6"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+    branch: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10"/><path d="M18 10c0 4-6 3-12 7"/>',
   };
 
   function svg(name, size) {
@@ -157,7 +164,7 @@
 
   function assistant(kids) {
     const m = h("div", "msg msg-assistant");
-    const av = h("span", "msg-avatar", svg("spark", 16));
+    const av = h("span", "msg-dot");
     av.setAttribute("aria-hidden", "true");
     m.append(av, h("div", "msg-body", kids));
     place(m);
@@ -236,7 +243,7 @@
     input.disabled = !on;
     input.maxLength = mode === "ask" ? 2000 : BRIEF_LIMIT;  // the server accepts 2,000 characters per question
     input.placeholder = placeholder || "";
-    attachBtn.hidden = mode !== "brief";
+    attachBtn.disabled = mode !== "brief";
     box.classList.toggle("is-off", !on);
     updateSend();
   }
@@ -357,10 +364,9 @@
     if (push && location.pathname !== "/chat") history.pushState({}, "", "/chat");
     renderHistory();
     S.phase = "repo";
-    setComposer("off", "Choose a repository to begin");
-    const run = S.run;
-    const m = assistant([p("Hi" + (FIRST_NAME ? " " + FIRST_NAME : "") + ". Which repository should I check?")]);
-    loadRepos(bodyOf(m), run);
+    setRepoChip(null);
+    setComposer("off", "Pick a repository to begin");
+    showWelcome(S.run);
   }
 
   function focusFirstChoice(list) {
@@ -368,54 +374,192 @@
     if (first) first.focus({ preventScroll: true });
   }
 
-  async function loadRepos(body, run) {
-    const sk = skeleton();
-    body.append(sk);
+  async function getRepos() {
+    if (S.repos) return S.repos;
+    const data = await SF.api("/api/repos");
+    S.repos = data.repos || [];
+    return S.repos;
+  }
+
+  // Repositories checked most recently come first, then the rest in the order GitHub gives them.
+  function topRepos(repos, n) {
+    const order = [];
+    S.history.forEach((a) => { if (a.repo && !order.includes(a.repo)) order.push(a.repo); });
+    const byName = new Map(repos.map((r) => [r.full_name, r]));
+    const top = order.map((name) => byName.get(name)).filter(Boolean);
+    repos.forEach((r) => { if (!top.includes(r)) top.push(r); });
+    return top.slice(0, n);
+  }
+
+  function lastChecked(name) {
+    const a = S.history.find((x) => x.repo === name);
+    return a ? "Checked " + (a.created_label || "recently") : "Not checked yet";
+  }
+
+  async function showWelcome(run) {
+    const wrap = h("section", "welcome", [
+      h("h1", "welcome-title", "What should I check today" + (FIRST_NAME ? ", " + FIRST_NAME : "") + "?"),
+      p("Pick a repository. I will find the risky change, try to break it, fix it and prove the fix works.", "welcome-sub"),
+    ]);
+    const grid = h("div", "repo-grid", [skeleton()]);
+    wrap.append(grid);
+    thread.append(wrap);
     try {
-      const data = await SF.api("/api/repos");
+      if (!S.historyLoaded) await refreshHistory();
+      const repos = await getRepos();
       if (run !== S.run) return;
-      sk.remove();
-      const repos = data.repos || [];
+      grid.replaceChildren();
       if (!repos.length) {
-        body.append(p("I do not see any repositories on this account yet. Once you have one, come back and I will check it."));
+        grid.append(p("I do not see any repositories on this account yet. Once you have one, come back and I will check it.", "muted"));
         return;
       }
-      const list = h("div", "choice-list" + (repos.length > REPOS_SCROLL_AFTER ? " is-scroll" : ""));
-      repos.forEach((r) => {
-        const b = h("button", "choice", [
-          h("span", "icon-tile", svg("repo", 16)),
-          h("span", "choice-main", [
-            h("span", "choice-title", r.full_name),
-            r.default_branch ? h("span", "choice-meta", "Branch " + r.default_branch) : null,
-          ]),
-          h("span", "choice-end", svg("chevron", 16)),
+      topRepos(repos, 3).forEach((r) => {
+        const card = h("button", "repo-card", [
+          h("span", "repo-card-icon", svg("repo", 16)),
+          h("span", "repo-card-name", r.full_name),
+          h("span", "repo-card-meta", [svg("branch", 12), r.default_branch || "main"]),
+          h("span", "repo-card-last", lastChecked(r.full_name)),
         ]);
-        b.type = "button";
-        b.addEventListener("click", () => pickRepo(r, list));
-        list.append(b);
+        card.type = "button";
+        card.addEventListener("click", () => chooseRepo(r));
+        grid.append(card);
       });
-      body.append(list);
-      scrollEnd();
+      const all = h("button", "repo-all", [svg("search", 14), "All repositories", h("span", "repo-all-count", String(repos.length)), svg("down", 14)]);
+      all.type = "button";
+      all.setAttribute("aria-haspopup", "listbox");
+      all.setAttribute("aria-expanded", "false");
+      all.addEventListener("click", () => openRepoMenu(all));
+      wrap.append(h("div", "repo-all-row", all));
     } catch (err) {
       if (run !== S.run) return;
-      sk.remove();
-      body.append(p(calm(err, "I could not load your repositories just now.")),
-        button("Try again", "btn btn-secondary btn-sm", (e) => {
-          e.currentTarget.previousElementSibling.remove();
-          e.currentTarget.remove();
-          loadRepos(body, run);
-        }, "refresh"));
+      grid.replaceChildren(p(calm(err, "I could not load your repositories just now."), "muted"),
+        button("Try again", "btn btn-secondary btn-sm", () => { wrap.remove(); showWelcome(run); }, "refresh"));
     }
   }
 
-  function pickRepo(repo, list) {
-    if (S.phase !== "repo") return;
+  function setRepoChip(repo) {
+    repoChipLabel.textContent = repo ? repo.full_name : "Choose a repository";
+    repoChip.classList.toggle("is-set", !!repo);
+  }
+
+  // Picking a repository from the welcome cards, the dropdown or the composer chip.
+  function chooseRepo(repo) {
+    closeRepoMenu(true);
+    if (S.phase !== "repo") {
+      resetThread();
+      if (location.pathname !== "/chat") history.pushState({}, "", "/chat");
+      renderHistory();
+    }
+    thread.querySelector(".welcome")?.remove();
     S.phase = "commit";
     S.repo = repo;
-    list.remove();
-    userMsg(repo.full_name);
+    setRepoChip(repo);
+    setComposer("off", "Pick a commit above");
+    userMsg("Check " + repo.full_name);
     askCommit();
   }
+
+  // ---------------------------------------------------------------- repository dropdown
+
+  let menu = null;
+  let menuAnchor = null;
+
+  function closeRepoMenu(silent) {
+    if (!menu) return;
+    menu.remove();
+    menu = null;
+    if (menuAnchor) {
+      menuAnchor.setAttribute("aria-expanded", "false");
+      if (!silent) menuAnchor.focus({ preventScroll: true });
+    }
+    menuAnchor = null;
+  }
+
+  async function openRepoMenu(anchor) {
+    if (menu && menuAnchor === anchor) { closeRepoMenu(); return; }
+    closeRepoMenu(true);
+    menuAnchor = anchor;
+    anchor.setAttribute("aria-expanded", "true");
+    const search = h("input", "repo-menu-search");
+    search.type = "search";
+    search.placeholder = "Search repositories";
+    search.setAttribute("aria-label", "Search repositories");
+    const list = h("div", "repo-menu-list");
+    list.setAttribute("role", "listbox");
+    list.id = "repo-menu-list";
+    search.setAttribute("aria-controls", list.id);
+    menu = h("div", "repo-menu", [h("div", "repo-menu-head", [svg("search", 14), search]), list]);
+    document.body.append(menu);
+    position(menu, anchor);
+
+    let repos = [];
+    let active = 0;
+    const matching = () => {
+      const q = search.value.trim().toLowerCase();
+      return repos.filter((r) => r.full_name.toLowerCase().includes(q));
+    };
+    const render = () => {
+      const shown = matching();
+      list.replaceChildren();
+      if (!shown.length) list.append(h("p", "repo-menu-empty", "No repository matches that."));
+      active = Math.min(active, Math.max(0, shown.length - 1));
+      shown.forEach((r, i) => {
+        const current = S.repo && S.repo.full_name === r.full_name;
+        const opt = h("div", "repo-option" + (i === active ? " is-active" : "") + (current ? " is-current" : ""), [
+          svg("repo", 14),
+          h("span", "repo-option-name", r.full_name),
+          current ? svg("check", 14) : h("span", "repo-option-branch", r.default_branch || "main"),
+        ]);
+        opt.setAttribute("role", "option");
+        opt.id = "repo-opt-" + i;
+        opt.setAttribute("aria-selected", String(i === active));
+        opt.addEventListener("mousedown", (e) => e.preventDefault());
+        opt.addEventListener("click", () => chooseRepo(r));
+        list.append(opt);
+      });
+      if (shown.length) search.setAttribute("aria-activedescendant", "repo-opt-" + active);
+      else search.removeAttribute("aria-activedescendant");
+    };
+    search.addEventListener("input", () => { active = 0; render(); });
+    search.addEventListener("keydown", (e) => {
+      const shown = matching();
+      if (e.key === "ArrowDown") { e.preventDefault(); active = Math.min(active + 1, shown.length - 1); render(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); active = Math.max(active - 1, 0); render(); }
+      else if (e.key === "Enter") { e.preventDefault(); if (shown[active]) chooseRepo(shown[active]); return; }
+      else if (e.key === "Escape") { e.preventDefault(); closeRepoMenu(); return; }
+      list.querySelector(".is-active")?.scrollIntoView({ block: "nearest" });
+    });
+    list.append(skeleton());
+    search.focus({ preventScroll: true });
+    try {
+      repos = await getRepos();
+      if (menu) render();
+    } catch (err) {
+      if (menu) list.replaceChildren(h("p", "repo-menu-empty", calm(err, "I could not load your repositories.")));
+    }
+  }
+
+  // Open below the anchor, or above it when there is no room (the composer chip sits at the bottom).
+  function position(el, anchor) {
+    const r = anchor.getBoundingClientRect();
+    const width = Math.min(360, window.innerWidth - 32);
+    el.style.width = width + "px";
+    el.style.left = Math.max(16, Math.min(r.left, window.innerWidth - width - 16)) + "px";
+    const below = window.innerHeight - r.bottom;
+    if (below < 320 && r.top > below) {
+      el.style.top = "auto";
+      el.style.bottom = (window.innerHeight - r.top + 8) + "px";
+    } else {
+      el.style.bottom = "auto";
+      el.style.top = (r.bottom + 8) + "px";
+    }
+  }
+
+  document.addEventListener("mousedown", (e) => {
+    if (menu && !menu.contains(e.target) && menuAnchor && !menuAnchor.contains(e.target)) closeRepoMenu(true);
+  });
+  window.addEventListener("resize", () => closeRepoMenu(true));
+  repoChip.addEventListener("click", () => openRepoMenu(repoChip));
 
   function askCommit() {
     const run = S.run;
@@ -645,14 +789,31 @@
     ];
   }
 
+  // Each engine step reads like a tool call: Name(argument), with its result on the line below.
+  const TOOL_NAMES = { find: "Scan", hack: "Attack", fix: "Patch", prove: "Verify" };
+  function toolArg(key) {
+    const sha = S.commit ? (S.commit.short_sha || String(S.commit.sha || "").slice(0, 7)) : "";
+    if (key === "find") return sha ? "commit " + sha : "commit";
+    if (key === "hack") return "sandbox";
+    if (key === "fix") return "smallest safe change";
+    return "attack + tests";
+  }
+
   function showSteps(steps, intro) {
     const list = h("div", "step-list");
     list.setAttribute("role", "list");
     S.steps = {};
     steps.forEach((s) => {
-      const el = h("div", "step", [
-        h("span", "step-icon"),
-        h("span", "step-text", [h("span", "step-label", s.label), h("span", "step-note")]),
+      const el = h("div", "step tool", [
+        h("span", "tool-dot"),
+        h("span", "step-text", [
+          h("span", "tool-head", [
+            h("span", "tool-name", TOOL_NAMES[s.key] || s.key),
+            h("span", "tool-arg", "(" + toolArg(s.key) + ")"),
+            h("span", "tool-label", s.label),
+          ]),
+          h("span", "tool-out", [h("span", "tool-elbow", "\u23bf"), h("span", "step-note")]),
+        ]),
       ]);
       el.setAttribute("role", "listitem");
       S.steps[s.key] = el;
@@ -924,7 +1085,8 @@
       S.commit = d.commit;
       S.phase = d.status === "running" ? "running" : d.status === "done" ? "done" : "failed";
 
-      userMsg(d.repo);
+      setRepoChip(S.repo);
+      userMsg("Check " + d.repo);
       userMsg(commitBubble(d.commit));
       if (d.brief) userMsg(briefBubble(d.brief));
 
@@ -974,6 +1136,8 @@
   }
   window.addEventListener("popstate", route);
 
-  refreshHistory();
+  if (modeChip) {
+    modeChip.textContent = MODES.learn && MODES.report ? "Learn + Report" : MODES.report ? "Report mode" : "Learn mode";
+  }
   route();
 })();

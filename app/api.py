@@ -228,7 +228,8 @@ def repos(user: dict = Depends(require_user)):
     token = user_token(user)
     if not token:
         out = []
-        for name in user["repos"]:
+        names = sorted(user["repos"], key=lambda n: n != user.get("repo"))  # the active repo first, the rest as stored
+        for name in names:
             info = db.get_repo(name) or {}
             out.append({"full_name": name, "default_branch": info.get("default_branch") or "main",
                         "private": False, "html_url": f"https://github.com/{name}", "description": ""})

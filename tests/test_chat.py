@@ -18,12 +18,13 @@ os.chdir(ROOT)
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import db, github, llm  # noqa: E402
+from app import db, fixtures, github, llm  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.engine import brief_files  # noqa: E402
 from app.main import app  # noqa: E402
 
 REPO = "carvelle/marks-portal"
+EXTRA_REPOS = sorted(r["full_name"] for r in fixtures.EXTRA_REPOS)
 FAKE_TOKEN = "gho_chat_test_token"
 
 
@@ -99,8 +100,39 @@ def test_signed_out_chat_api_is_401(client):
 
 def test_repos_for_the_demo_user(demo):
     repos = demo.get("/api/repos").json()["repos"]
-    assert [r["full_name"] for r in repos] == [REPO]
+    assert [r["full_name"] for r in repos] == [REPO, *EXTRA_REPOS]
     assert repos[0]["default_branch"] == "main"
+
+
+def test_extra_demo_repos_have_commits_and_scan_as_safe(demo):
+    for name in EXTRA_REPOS:
+        commits = demo.get(f"/api/repos/{name}/commits").json()["commits"]
+        assert 2 <= len(commits) <= 4
+        assert all(c["state"] == "new" and c["author"]["login"] for c in commits)
+    name = EXTRA_REPOS[0]
+    commit = demo.get(f"/api/repos/{name}/commits").json()["commits"][0]
+    made = demo.post("/api/analyses", json={"repo": name, "sha": commit["sha"]})
+    assert made.status_code == 202
+    for _ in range(100):
+        a = demo.get(f"/api/analyses/{made.json()['id']}").json()
+        if a["status"] != "running":
+            break
+        time.sleep(0.1)
+    assert a["status"] == "done" and a["result"]["verdict"] == "safe"
+    assert demo.get("/api/analyses").json()["analyses"][0]["repo"] == name
+
+
+def test_older_demo_database_gets_the_extra_repos(client):
+    client.get("/auth/demo", follow_redirects=False)
+    with db.tx() as conn:  # pretend this database was seeded before the extra repos existed
+        conn.execute("DELETE FROM user_repos WHERE full_name != ?", (REPO,))
+        conn.execute("DELETE FROM repos WHERE full_name != ?", (REPO,))
+        conn.execute("DELETE FROM members WHERE repo != ?", (REPO,))
+    db.reset_cache()
+    db.connect().close()  # the next start adds them back
+    repos = client.get("/api/repos").json()["repos"]
+    assert [r["full_name"] for r in repos] == [REPO, *EXTRA_REPOS]
+    assert all(r["default_branch"] == "main" for r in repos)
 
 
 def test_repo_commits_shape(demo):

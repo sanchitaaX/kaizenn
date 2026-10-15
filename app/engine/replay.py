@@ -102,6 +102,10 @@ def _derived_reports() -> dict[str, dict]:
 
 
 def fixture_report(repo: str, sha: str) -> dict | None:
+    extra = fx.extra_repo(repo)
+    if extra:  # the other demo repositories: every commit replays a calm "safe" result
+        found = next((c for c in extra["commits"] if c["sha"] == sha[:7].lower()), None)
+        return safe_report(sha[:7].lower(), found["author"]) if found else None
     if repo != fx.REPO["full_name"]:
         return None
     short = sha[:7].lower()

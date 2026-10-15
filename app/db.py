@@ -202,6 +202,9 @@ def _fixture_time(text: str) -> datetime:
     if m:
         n = int(m.group(1))
         return now() - (timedelta(minutes=n) if m.group(2).startswith("min") else timedelta(hours=n))
+    m = re.match(r"(\d+)\s*days?", t)
+    if m:
+        return now() - timedelta(days=int(m.group(1)))
     if "yesterday" in t:
         return now() - timedelta(hours=26)
     return now()
@@ -222,8 +225,11 @@ def connect() -> sqlite3.Connection:
                 if path != ":memory:":
                     conn.execute("PRAGMA journal_mode=WAL")
                 conn.executescript(SCHEMA)
-                if settings.demo_mode and not conn.execute("SELECT 1 FROM users LIMIT 1").fetchone():
-                    _seed_demo(conn, fresh=False)
+                if settings.demo_mode:
+                    if not conn.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+                        _seed_demo(conn, fresh=False)
+                    else:  # an older database: add the demo repositories it is missing
+                        _seed_extra_demo_repos(conn)
                 conn.commit()
                 _initialized.add(path)
     return conn
@@ -268,6 +274,26 @@ def _seed_demo(conn: sqlite3.Connection, fresh: bool) -> None:
     for full_name in u.get("repos", []):
         conn.execute("INSERT OR IGNORE INTO user_repos (login, full_name) VALUES (?, ?)", (u["login"], full_name))
     _seed_demo_repo(conn, fresh)
+    _seed_extra_demo_repos(conn)
+
+
+def _seed_extra_demo_repos(conn: sqlite3.Connection) -> None:
+    """Make sure the demo user has the extra demo repositories (never touches commits or anything else).
+
+    Safe to run on every start: it only adds what is missing, and only for the demo account."""
+    login = fx.USER["login"]
+    row = conn.execute("SELECT is_demo FROM users WHERE login = ?", (login,)).fetchone()
+    if not row or not row["is_demo"]:
+        return
+    ts = iso(now())
+    for r in fx.EXTRA_REPOS:
+        conn.execute(
+            "INSERT OR IGNORE INTO repos (full_name, default_branch, html_url, private, last_synced_at) VALUES (?, ?, ?, 0, NULL)",
+            (r["full_name"], r["default_branch"], f"https://github.com/{r['full_name']}"))
+        for m in fx.MEMBERS:
+            conn.execute("INSERT OR IGNORE INTO members (repo, login, name, avatar_url) VALUES (?, ?, ?, ?)",
+                         (r["full_name"], m["login"], m["name"], m["avatar_url"]))
+        conn.execute("INSERT OR IGNORE INTO user_repos (login, full_name) VALUES (?, ?)", (login, r["full_name"]))
 
 
 def _seed_demo_repo(conn: sqlite3.Connection, fresh: bool) -> None:
@@ -316,6 +342,17 @@ def reset_demo(fresh: bool = False) -> None:
 
 def demo_sync(repo: str) -> list[dict]:
     """Demo stand-in for GitHub: returns the fixture commits as if GitHub had sent them."""
+    extra = fx.extra_repo(repo)
+    if extra:
+        return [
+            {
+                "sha": c["sha"], "author": c["author"], "author_name": fx.member(c["author"])["name"],
+                "avatar_url": fx.member(c["author"])["avatar_url"], "message": c["message"],
+                "committed_at": iso(_fixture_time(c["time"])),
+                "html_url": f"https://github.com/{repo}/commit/{c['sha']}",
+            }
+            for c in extra["commits"]
+        ]
     if repo != demo_repo():
         return []
     return [
@@ -381,6 +418,8 @@ def ensure_demo_user() -> dict | None:
     with tx() as conn:
         if not conn.execute("SELECT 1 FROM users WHERE login = ?", (fx.USER["login"],)).fetchone():
             _seed_demo(conn, fresh=False)
+        else:
+            _seed_extra_demo_repos(conn)
         row = conn.execute("SELECT * FROM users WHERE login = ?", (fx.USER["login"],)).fetchone()
         return _user_dict(conn, row) if row["is_demo"] else None
 
