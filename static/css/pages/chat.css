@@ -455,3 +455,20 @@ a.resource:hover { background: var(--surface-soft); text-decoration: none; }
 .agent-learn a:hover { text-decoration: underline; }
 .agent-learn-kind { display: inline-block; margin-right: 8px; font-size: var(--fs-12); font-weight: 600; padding: 1px 8px; border-radius: 999px; background: #e3e6f8; color: var(--ink); }
 .agent-learn-src { color: var(--ink-soft); }
+
+/* Fix all: the problems being handled, then every fix with Commit all */
+.fixall-list { display: flex; flex-direction: column; gap: 6px; margin-top: var(--s-2); padding: 0; list-style: none; }
+.fixall-item { display: flex; align-items: center; gap: var(--s-2); padding: 6px var(--s-3); border-radius: var(--r-md);
+  border: 1px solid var(--hairline); background: var(--surface); font-size: var(--fs-13); transition: background-color .2s; }
+.fixall-item.is-done { background: rgba(94, 106, 210, 0.06); }
+.fixall-mark { flex: none; width: 18px; height: 18px; display: grid; place-items: center; color: var(--accent-ink); }
+.fixall-mark .spinner { width: 14px; height: 14px; }
+.fixall-what { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; min-width: 0; font-weight: 600; }
+.fixall-what code { font-family: var(--mono); font-size: 11.5px; font-weight: 500; color: var(--ink-soft); overflow-wrap: anywhere; }
+.fixall-fixes { display: flex; flex-direction: column; gap: 6px; margin-top: var(--s-3); }
+.fixall-fix summary { cursor: pointer; font-weight: 600; font-size: var(--fs-13); }
+.fixall-fix > p { margin: var(--s-2) 0; font-size: var(--fs-13); color: var(--ink-soft); }
+.sev { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: var(--fs-12); font-weight: 700;
+  white-space: nowrap; background: #e3e6f8; color: #2f3a9e; flex: none; }
+.sev.sev-critical { background: #2f3a9e; color: #fff; }
+.sev.sev-medium, .sev.sev-low { background: var(--surface-soft); color: var(--ink-soft); border: 1px solid var(--hairline); }

@@ -34,6 +34,15 @@ def _repo_name(raw: str) -> str:
     return name
 
 
+
+def target_from_vuln(v: dict) -> dict:
+    """A dashboard problem (a code scanning alert or SecureFix's own finding) as a finding the agent starts from."""
+    _, cwe, _ = rules.TYPES.get(v["type"], (v["title"], v.get("cwe"), v["severity"]))
+    scanner = f"codeql #{v.get('alert_number')}" if v.get("alert_number") else "securefix scan"
+    return {"id": f"A{v['id']}", "type": v["type"], "title": v["title"], "cwe": v.get("cwe") or cwe,
+            "severity": v["severity"], "file": v["file"], "line": v["line"], "scanner": scanner,
+            "reason": v.get("description") or "", "confidence": 0.9, "source": "", "sink": ""}
+
 def _view(run: dict) -> dict:
     state = run["state"]
     res = dict(state.get("result") or {})
@@ -61,11 +70,7 @@ def start_run(body: RunIn, user: dict = Depends(require_user)):
             raise HTTPException(status_code=404, detail="That vulnerability was not found.")
         if v["source"] == "demo":
             raise HTTPException(status_code=409, detail="Demo repositories use the prepared fixes; the agent runs on real repositories.")
-        name, cwe, sev = rules.TYPES.get(v["type"], (v["title"], v.get("cwe"), v["severity"]))
-        target = {"id": f"A{v['id']}", "type": v["type"], "title": v["title"], "cwe": v.get("cwe") or cwe,
-                  "severity": v["severity"], "file": v["file"], "line": v["line"],
-                  "scanner": f"codeql #{v.get('alert_number')}", "reason": v.get("description") or "",
-                  "confidence": 0.9, "source": "", "sink": ""}
+        target = target_from_vuln(v)
         repo = v["full_name"]
     else:
         repo = _repo_name(body.repo)

@@ -1432,6 +1432,109 @@
     }
   }
 
+  // ---------------------------------------------------------------- Fix all (from the dashboard)
+
+  // Every open problem of one repository: listed as it is handled, then all the fixes with Commit all.
+  // A demo repository uses the prepared fixes; a GitHub repository gets one agent run on the riskiest problems,
+  // whose pull request is the Commit all.
+  const SEV = { critical: "Critical", high: "High", medium: "Medium", low: "Low" };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function notifyDashboard() {
+    try { window.parent.postMessage({ type: "securefix:fleet-changed" }, location.origin); } catch (_) { /* not embedded */ }
+  }
+
+  async function startFixAll(repoId, kept) {
+    closeRepoMenu(true);
+    resetThread();
+    renderHistory();
+    S.phase = "running";
+    const run = S.run;
+    setComposer("off", "Fixing...");
+    if (kept && kept.done) {  // reopened after Commit all: show how it ended
+      userMsg("Fix all problems in " + (kept.name || "the repository"));
+      assistant([p(kept.done)]);
+      replayTalk(kept.talk);
+      afterAgent();
+      return;
+    }
+    const thinking = typing();
+    let res;
+    try {
+      res = await SF.api(`/api/fleet/repos/${repoId}/fix-all`, { method: "POST" });
+    } catch (err) {
+      thinking.remove();
+      if (run !== S.run) return;
+      assistant([p(calm(err, "I could not start fixing that repository."))]);
+      afterAgent();
+      return;
+    }
+    thinking.remove();
+    if (run !== S.run) return;
+    const name = res.repo.full_name;
+    setRepoChip({ full_name: name });
+    userMsg("Fix all problems in " + name);
+
+    if (res.mode === "agent") {
+      if (!res.run) { assistant([p(res.message)]); afterAgent(); return; }
+      if ((res.handling || []).length) {
+        assistant([p(`The SecureFix agent is taking on the ${res.handling.length} riskiest problems in ${name}:`),
+          h("ol", "fixall-list", res.handling.map((v) => h("li", "fixall-item", [
+            h("span", "sev sev-" + v.severity, SEV[v.severity] || v.severity),
+            h("span", "fixall-what", [v.title, h("code", null, `${v.file}:${v.line}`)])])))]);
+      }
+      history.replaceState({}, "", "/chat?run=" + res.run);
+      remember({ run: res.run }, true);
+      showRun(res.run, run, notifyDashboard);
+      return;
+    }
+
+    remember({ fixall: repoId, name: name }, true);
+    if (!res.fixes.length) { assistant([p(res.message)]); afterAgent(); return; }
+    const n = res.fixes.length;
+    const rows = res.fixes.map((f) => {
+      const mark = h("span", "fixall-mark", h("span", "spinner"));
+      const li = h("li", "fixall-item is-running", [mark,
+        h("span", "sev sev-" + f.vuln.severity, SEV[f.vuln.severity] || f.vuln.severity),
+        h("span", "fixall-what", [f.vuln.title, h("code", null, `${f.vuln.file}:${f.vuln.line}`)])]);
+      return { li, mark };
+    });
+    assistant([p(`Fixing ${n} problem${n === 1 ? "" : "s"} in ${name}:`), h("ol", "fixall-list", rows.map((r) => r.li))]);
+    scrollEnd();
+    for (const r of rows) {  // the fixes are prepared already; show them landing one by one
+      await wait(n > 12 ? 60 : 180);
+      if (run !== S.run) return;
+      r.li.classList.replace("is-running", "is-done");
+      r.mark.replaceChildren(svg("check", 12));
+    }
+
+    const actions = h("div", "agent-actions");
+    const commit = button(`Commit all ${n} fix${n === 1 ? "" : "es"}`, "btn btn-primary btn-sm", async () => {
+      commit.disabled = true;
+      try {
+        const out = await SF.api(`/api/fleet/repos/${repoId}/commit-all`, { method: "POST",
+          body: { fix_ids: res.fixes.map((f) => f.fix_id) } });
+        actions.replaceChildren(h("div", "agent-verdict is-verified", [h("strong", null, "Committed"), h("span", null, out.message)]));
+        remember({ done: out.message });
+        notifyDashboard();
+      } catch (err) { SF.toast(calm(err, "The fixes could not be committed.")); commit.disabled = false; }
+    }, "check");
+    const review = h("a", "btn btn-secondary btn-sm", "Review them on the dashboard");
+    review.href = "/dashboard?repo=" + repoId;
+    actions.append(commit, review);
+    assistant([
+      h("div", "agent-verdict is-verified", [h("strong", null, `${n} fix${n === 1 ? "" : "es"} ready`),
+        h("span", null, "Each one is shown below. Commit them all at once, or review them one by one on the dashboard.")]),
+      h("div", "fixall-fixes", res.fixes.map((f, i) => h("details", "agent-code fixall-fix" + (i === 0 ? "" : ""), [
+        h("summary", null, [h("span", "sev sev-" + f.vuln.severity, SEV[f.vuln.severity] || f.vuln.severity), " ",
+          f.vuln.title + " · " + f.vuln.file + ":" + f.vuln.line]),
+        p(f.explanation || ""), changeView(f.diff)]))),
+      actions]);
+    S.phase = "repo";
+    setComposer("repo", "Ask about these fixes, type a repository (owner/name), or pick from the list");
+    scrollEnd();
+  }
+
   // ---------------------------------------------------------------- open a stored conversation
 
   async function loadAnalysis(id, opts) {
@@ -1633,7 +1736,8 @@
         a.href = r.pull_request.url; a.target = "_blank"; a.rel = "noopener noreferrer";
         actions.prepend(a);
       } else if (patch.diff && (r.verdict === "verified" || r.verdict === "inconclusive")) {
-        const pr = button("Open pull request", "btn btn-primary btn-sm", async () => {
+        const many = (r.fixes || []).filter((x) => x.verdict !== "failed").length;
+        const pr = button(many > 1 ? `Commit all ${many} fixes (pull request)` : "Open pull request", "btn btn-primary btn-sm", async () => {
           pr.disabled = true;
           try {
             const out = await SF.api("/api/agent/runs/" + d.id + "/pull-request", { method: "POST" });
@@ -1709,8 +1813,15 @@
   }
 
   function route() {
-    const runId = parseInt(new URLSearchParams(location.search).get("run") || "", 10);
+    const params = new URLSearchParams(location.search);
+    const runId = parseInt(params.get("run") || "", 10);
     const kept = savedThread() || {};
+    const fixAll = parseInt(params.get("fixall") || "", 10);
+    if (location.pathname === "/chat" && fixAll) {  // Fix all from the dashboard
+      history.replaceState({}, "", "/chat");
+      startFixAll(fixAll, kept.fixall === fixAll ? kept : null);
+      return;
+    }
     if (location.pathname === "/chat" && runId) {
       resetThread();
       renderHistory();
@@ -1730,6 +1841,8 @@
     } else if (kept.analysis) {
       history.replaceState({}, "", "/chat/" + kept.analysis);
       loadAnalysis(kept.analysis, { push: false });
+    } else if (kept.fixall) {
+      startFixAll(kept.fixall, kept);
     } else if (kept.check && (kept.names || []).length) {
       checkManyRepos(kept.names, kept.check, () => replayTalk(kept.talk));
     } else {

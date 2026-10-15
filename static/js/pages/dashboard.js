@@ -515,26 +515,27 @@
     rows.forEach((t) => t._setOpen(open));
   });
 
-  // Fix all for one repository: a demo repository gets its prepared fixes, saved for review; a GitHub repository
-  // gets a security repair agent run (it fixes up to three problems and uses the project brief).
+  // Fix all for one repository happens in the assistant: it lists every problem as it is handled, then shows all
+  // the fixes with Commit all (demo: the prepared fixes; GitHub: one agent run and its pull request).
   function fixAllButton(r) {
     const btn = h("button", "btn btn-primary btn-sm fix-all", [icon("spark", 14), "Fix all"]);
     btn.type = "button";
     btn.title = `Fix every open problem in ${r.full_name}`;
     btn.addEventListener("keydown", (e) => e.stopPropagation());
-    btn.addEventListener("click", async (e) => {
+    btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      btn.disabled = true;
-      try {
-        const out = await SF.api(`/api/fleet/repos/${r.id}/fix-all`, { method: "POST" });
-        SF.toast(out.message);
-        if (out.run) SF.openChat("/chat?embed=1&run=" + out.run);
-        await Promise.all([loadSummary(), loadRepos()]);
-      } catch (err) { SF.toast(err.message); }
-      finally { btn.disabled = false; }
+      SF.openChat("/chat?embed=1&fixall=" + r.id);
     });
     return btn;
   }
+
+  // The assistant tells the dashboard when Fix all committed something, so the numbers and the list catch up.
+  window.addEventListener("message", (e) => {
+    if (e.origin !== location.origin || !e.data || e.data.type !== "securefix:fleet-changed") return;
+    loadSummary();
+    loadRepos();
+    if (drawer.open && S.drawerRepo) openRepo(S.drawerRepo);
+  });
 
   function reportLink(r) {
     const a = h("a", "btn btn-ghost btn-icon btn-sm report-link", icon("download", 16));
@@ -638,28 +639,42 @@
     const box = h("div", "brief");
     const saved = { brief: r.brief || "", files: (files || []).slice() };
 
-    function summary() {
+    // One line once a brief exists (so the problems below stay in view); Show opens the text and the files.
+    function summary(open) {
       const has = saved.brief || saved.files.length;
-      const btn = h("button", "btn btn-secondary btn-sm", has ? "Edit brief" : ["Add brief", icon("arrow", 14)]);
-      btn.type = "button";
-      btn.addEventListener("click", (e) => { e.stopPropagation(); form(); });
-      const head = h("div", "brief-head", [
-        h("div", null, [h("strong", null, "Project brief"),
-          h("span", "brief-hint", has ? " Sent with every fix for this repository" : " Optional: tell SecureFix what this repository does and what must keep working")]),
-        btn]);
-      const kids = [head];
-      if (saved.brief) kids.push(h("p", "brief-text", saved.brief.length > 280 ? saved.brief.slice(0, 280) + "…" : saved.brief));
-      if (saved.files.length) kids.push(h("ul", "brief-files", saved.files.map((f) => h("li", "brief-file", [icon("clip", 12), f.name, h("span", "faint", kb(f.size))]))));
-      if (has && r.source === "github") kids.push(h("div", "brief-actions", [h("span", "brief-hint",
-        "Keep it with the code: the AI turns it into a clear BRIEF.md for " + (r.default_branch || "main") + " and you review it first."),
-        h("span", "spacer"), h("span", "brief-push", pushButton())]));
+      box.classList.toggle("is-compact", !!has && !open);
+      const edit = h("button", "btn btn-ghost btn-sm", has ? "Edit" : ["Add brief", icon("arrow", 14)]);
+      edit.type = "button";
+      edit.addEventListener("click", (e) => { e.stopPropagation(); form(); });
+      if (!has) {
+        box.replaceChildren(h("div", "brief-head", [h("div", null, [h("strong", null, "Project brief"),
+          h("span", "brief-hint", " Optional: tell SecureFix what this repository does and what must keep working")]), edit]));
+        return;
+      }
+      const toggle = h("button", "btn btn-ghost btn-sm", open ? "Hide" : "Show");
+      toggle.type = "button";
+      toggle.setAttribute("aria-expanded", String(!!open));
+      toggle.addEventListener("click", (e) => { e.stopPropagation(); summary(!open); });
+      const files = saved.files.length ? ` · ${saved.files.length} file${saved.files.length === 1 ? "" : "s"}` : "";
+      const line = h("div", "brief-head", [
+        h("div", "brief-line", [icon("check", 14), h("strong", null, "Project brief added"), h("span", "brief-hint", files),
+          !open && saved.brief ? h("span", "brief-peek", saved.brief) : null]),
+        h("div", "brief-tools", [toggle, edit, r.source === "github" ? h("span", "brief-push", pushButton()) : null])]);
+      const kids = [line];
+      if (open) {
+        if (saved.brief) kids.push(h("p", "brief-text", saved.brief));
+        if (saved.files.length) kids.push(h("ul", "brief-files", saved.files.map((f) => h("li", "brief-file", [icon("clip", 12), f.name, h("span", "faint", kb(f.size))]))));
+        if (r.source === "github") kids.push(h("p", "brief-hint", "Push BRIEF.md: the AI turns the brief into a clear BRIEF.md for " +
+          (r.default_branch || "main") + ", and you review it before it is committed."));
+      }
       box.replaceChildren(...kids);
     }
 
     // BRIEF.md: the AI rewrites the paragraph and the attached files into a clean brief, the owner reviews and edits
     // it, and Push commits it to the default branch and opens it on GitHub.
     function pushButton() {
-      const btn = h("button", "btn btn-secondary btn-sm", [icon("up", 14), "Push BRIEF.md to GitHub"]);
+      const btn = h("button", "btn btn-ghost btn-sm", [icon("up", 14), "Push BRIEF.md"]);
+      btn.title = "Push the brief to GitHub as BRIEF.md";
       btn.type = "button";
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
@@ -671,7 +686,7 @@
         } catch (err) {
           SF.toast(err.message);
           btn.disabled = false;
-          btn.replaceChildren(icon("up", 14), "Push BRIEF.md to GitHub");
+          btn.replaceChildren(icon("up", 14), "Push BRIEF.md");
         }
       });
       return btn;

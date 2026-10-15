@@ -451,3 +451,13 @@ dialog::backdrop { background: rgba(43, 48, 59, 0.38); }
 .brief textarea { min-height: 110px; }
 .detail > .brief:first-child, .drawer-body > .brief:first-child { margin-top: 0; }
 .brief-md { min-height: 260px; font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace); font-size: var(--fs-12); line-height: 1.5; }
+/* A brief that exists folds into one line, so the problems stay in view */
+.brief.is-compact { padding: var(--s-2) var(--s-3); gap: 0; }
+.brief-line { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+.brief-line > .icon { flex: none; color: var(--accent-ink); }
+.brief-line strong { flex: none; font-size: var(--fs-13); }
+.brief-peek { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-12); color: var(--ink-soft);
+  margin-left: 4px; }
+.brief-tools { display: flex; align-items: center; gap: 2px; flex: none; }
+@media (max-width: 640px) { .brief-peek { display: none; } .brief-head { flex-wrap: wrap; } }
+.detail-cell .brief { position: sticky; left: 0; max-width: min(100%, calc(100vw - 140px)); box-sizing: border-box; }

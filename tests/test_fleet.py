@@ -500,17 +500,44 @@ def test_project_brief_is_saved_and_shown(demo):
     assert demo.put(f"/api/fleet/repos/{repo['id']}/brief", json={"brief": "x" * 4001}).status_code == 422
 
 
-def test_fix_all_saves_prepared_fixes_for_one_demo_repo(demo):
+def test_fix_all_prepares_every_fix_and_commit_all_commits_them(demo):
     first, second = demo.get("/api/fleet/repos?source=demo&min_score=0").json()["items"][:2]
     statuses = lambda r: [v["status"] for v in demo.get(f"/api/fleet/repos/{r['id']}").json()["vulns"]]
     open_before, other_before = statuses(first).count("open"), statuses(second)
     out = demo.post(f"/api/fleet/repos/{first['id']}/fix-all").json()
-    assert out["fixed"] == open_before > 0 and out["run"] is None
-    assert "open" not in statuses(first)
+    assert out["mode"] == "prepared" and len(out["fixes"]) == open_before > 0
+    f = out["fixes"][0]
+    assert f["diff"].startswith(f"--- a/{f['vuln']['file']}") and "\n+" in f["diff"] and f["explanation"]
+    again = demo.post(f"/api/fleet/repos/{first['id']}/fix-all").json()  # the same drafts, not new ones
+    assert [x["fix_id"] for x in again["fixes"]] == [x["fix_id"] for x in out["fixes"]]
     assert statuses(second) == other_before  # only that repository
-    again = demo.post(f"/api/fleet/repos/{first['id']}/fix-all").json()
-    assert again["fixed"] == 0 and "already has a fix" in again["message"]
+    done = demo.post(f"/api/fleet/repos/{first['id']}/commit-all", json={"fix_ids": [x["fix_id"] for x in out["fixes"]]}).json()
+    assert len(done["committed"]) == open_before and "open" not in statuses(first)
+    assert done["repo"]["risk_score"] < first["risk_score"]
+    assert demo.post(f"/api/fleet/repos/{first['id']}/fix-all").json()["fixes"] == []
+    other = demo.post(f"/api/fleet/repos/{second['id']}/fix-all").json()["fixes"][0]["fix_id"]
+    assert demo.post(f"/api/fleet/repos/{first['id']}/commit-all", json={"fix_ids": [other]}).json()["committed"] == []
     assert demo.post("/api/fleet/repos/999999/fix-all").status_code == 404
+
+
+def test_fix_all_on_a_github_repository_hands_its_problems_to_the_agent(octo, monkeypatch):
+    from app.agent import controller
+
+    client, repo_id = octo
+    alerts = [{"type": t, "title": n, "severity": s, "cwe": c, "file": f, "line": i + 1, "description": "x",
+               "alert_number": None, "alert_url": None, "first_seen_at": None, "source": "securefix"}
+              for i, (t, n, s, c, f) in enumerate([("XSS", "Cross-site scripting", "medium", "CWE-79", "a.js"),
+                                                   ("SQL_INJECTION", "SQL injection", "critical", "CWE-89", "db.py"),
+                                                   ("SSRF", "SSRF", "high", "CWE-918", "net.py"),
+                                                   ("WEAK_HASH", "Weak hash", "low", "CWE-916", "auth.py")])]
+    store.save_github_repo("octo", {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop"}, alerts, "scanned")
+    started = {}
+    monkeypatch.setattr(controller, "start", lambda login, repo, token, **kw: started.update(repo=repo, **kw) or 41)
+    out = client.post(f"/api/fleet/repos/{repo_id}/fix-all").json()
+    assert out["mode"] == "agent" and out["run"] == 41 and started["repo"] == "octo/shop"
+    assert [t["title"] for t in started["target"]] == ["SQL injection", "SSRF", "Cross-site scripting"]  # riskiest 3
+    assert [h["title"] for h in out["handling"]] == ["SQL injection", "SSRF", "Cross-site scripting"]
+    assert client.post(f"/api/fleet/repos/{repo_id}/commit-all", json={"fix_ids": [1]}).status_code == 409
 
 
 def test_project_brief_takes_a_paragraph_and_files(demo):

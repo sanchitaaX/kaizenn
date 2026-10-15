@@ -302,42 +302,100 @@ def push_brief(repo_id: int, payload: PushBriefIn | None = None, user: dict = De
             "url": f"{r['html_url']}/blob/{branch}/{briefdoc.PATH}" if r.get("html_url") else commit.get("url", "")}
 
 
+FIX_ALL_AGENT = 3  # problems one agent run takes on (the riskiest first)
+
+
+class CommitAllIn(BaseModel):
+    fix_ids: list[int] = Field(..., min_length=1, max_length=200)
+
+
+def _unified(fix: dict, vuln: dict) -> str:
+    import difflib
+
+    old, new = fix["old_code"].splitlines(keepends=True), fix["new_code"].splitlines(keepends=True)
+    start = fix.get("start_line") or 1
+    out = [f"--- a/{vuln['file']}\n", f"+++ b/{vuln['file']}\n"]
+    for line in list(difflib.unified_diff(old, new, n=3))[2:]:
+        if line.startswith("@@"):  # line numbers from the file, not from the snippet
+            nums = [int(x) for x in re.findall(r"\d+", line.split("@@")[1])]
+            if len(nums) == 4:
+                line = f"@@ -{nums[0] + start - 1},{nums[1]} +{nums[2] + start - 1},{nums[3]} @@\n"
+        out.append(line if line.endswith("\n") else line + "\n")
+    return "".join(out)
+
+
 @router.post("/repos/{repo_id}/fix-all")
 def fix_repo(repo_id: int, user: dict = Depends(require_user)):
-    """Fix every open problem in one repository. A demo repository gets its prepared fixes, saved for review;
-    a GitHub repository gets one security repair agent run (it fixes up to 3 problems, with the project brief)."""
+    """Fix every open problem in one repository, for the chat to show.
+
+    Demo repository: a prepared fix for each open problem (draft, reused when there already is one), returned
+    with its diff so the chat can list them and offer Commit all. GitHub repository: one security repair agent
+    run on the riskiest open problems from the dashboard (with the project brief); Commit all is its pull request.
+    """
     from app.agent import controller
+    from app.agent_api import target_from_vuln
 
     found = store.get_repo(repo_id, _workspaces(user))
     if not found:
         raise HTTPException(status_code=404, detail="That repository was not found.")
     r = found["repo"]
+    todo = [v for v in found["vulns"] if v["status"] in ("open", "fix_saved")]
+    view = {k: r[k] for k in ("id", "full_name", "risk_score", "band", "band_label")}
     if r["source"] == "demo":
-        fixed = 0
-        for v in store.open_vulns(repo_id):
-            try:
-                made = fixer.demo_fix(v)
-            except fixer.FixError:
-                continue
-            fix = store.create_fix(v["id"], user["login"], **made)
-            store.decide_fix(fix["id"], "saved", "fix_saved")
-            fixed += 1
-        message = (f"{fixed} prepared fix{'es' if fixed != 1 else ''} saved for review." if fixed else
-                   "Every problem in this repository already has a fix waiting for review." if r["open_total"] else
-                   "Nothing to fix in this repository.")
-        return {"fixed": fixed, "run": None, "message": message}
+        fixes = []
+        for v in todo:
+            vuln = store.get_vuln(v["id"], _workspaces(user))
+            fix = store.open_fix(v["id"], user["login"])
+            if not fix:
+                try:
+                    fix = store.create_fix(v["id"], user["login"], **fixer.demo_fix(vuln))
+                except fixer.FixError:
+                    continue
+            fixes.append({"fix_id": fix["id"], "explanation": fix["explanation"], "diff": _unified(fix, vuln),
+                          "vuln": {k: vuln.get(k) for k in ("id", "title", "severity", "cwe", "file", "line")}})
+        return {"mode": "prepared", "repo": view, "fixes": fixes,
+                "message": f"{len(fixes)} fix{'es' if len(fixes) != 1 else ''} ready" if fixes else "Nothing to fix in this repository."}
     token = user_token(user)
     if not token:
         raise HTTPException(status_code=403, detail="Sign in with GitHub to fix this repository.")
-    if not r["open_total"]:
-        return {"fixed": 0, "run": None, "message": "Nothing to fix in this repository."}
+    if not todo:
+        return {"mode": "agent", "repo": view, "run": None, "handling": [], "message": "Nothing to fix in this repository."}
     busy = next((x for x in controller.recent(user["login"], 50)
                  if x["status"] == "running" and x["repo"].lower() == r["full_name"].lower()), None)
     if busy:
-        return {"fixed": 0, "run": busy["id"], "message": "The SecureFix agent is already fixing this repository."}
-    run_id = controller.start(user["login"], r["full_name"], token, brief=store.brief_for(_workspaces(user), r["full_name"]))
-    return {"fixed": 0, "run": run_id, "message": "The SecureFix agent is fixing this repository."}
+        return {"mode": "agent", "repo": view, "run": busy["id"], "handling": [],
+                "message": "The SecureFix agent is already fixing this repository."}
+    picked = [store.get_vuln(v["id"], _workspaces(user)) for v in todo[:FIX_ALL_AGENT]]  # riskiest first
+    run_id = controller.start(user["login"], r["full_name"], token, target=[target_from_vuln(v) for v in picked],
+                              brief=store.brief_for(_workspaces(user), r["full_name"]))
+    return {"mode": "agent", "repo": view, "run": run_id,
+            "handling": [{k: v.get(k) for k in ("title", "severity", "file", "line")} for v in picked],
+            "message": "The SecureFix agent is fixing this repository."}
 
+
+@router.post("/repos/{repo_id}/commit-all")
+def commit_all(repo_id: int, body: CommitAllIn, user: dict = Depends(require_user)):
+    """Commit every prepared fix the chat showed for a demo repository, in one go (like pressing Commit on each)."""
+    found = store.get_repo(repo_id, _workspaces(user))
+    if not found:
+        raise HTTPException(status_code=404, detail="That repository was not found.")
+    if found["repo"]["source"] != "demo":
+        raise HTTPException(status_code=409, detail="For a GitHub repository, Commit all opens the agent's pull request.")
+    committed = []
+    for fix_id in dict.fromkeys(body.fix_ids):
+        fix = store.get_fix(fix_id)
+        if not fix or fix["status"] not in ("draft", "saved"):
+            continue
+        vuln = store.get_vuln(fix["vuln_id"], _workspaces(user))
+        if not vuln or vuln["repo_id"] != repo_id:
+            continue
+        short = hashlib.sha1(f"{fix_id}:{vuln['id']}".encode()).hexdigest()[:7]
+        store.decide_fix(fix_id, "committed", "fixed", branch=f"securefix/vuln-{vuln['id']}", commit_sha=short)
+        committed.append({"fix_id": fix_id, "commit_sha": short, "title": vuln["title"]})
+    repo = store.get_repo(repo_id, _workspaces(user))["repo"]
+    return {"committed": committed, "repo": {k: repo[k] for k in ("id", "risk_score", "band", "band_label", "open_total")},
+            "message": f"Committed {len(committed)} fix{'es' if len(committed) != 1 else ''}. "
+                       f"{repo['full_name']} is now at risk {repo['risk_score']}/100."}
 
 @router.get("/repos/{repo_id}/report.pdf")
 def repo_report(repo_id: int, user: dict = Depends(require_user)):

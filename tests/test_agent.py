@@ -543,3 +543,22 @@ def test_agent_reads_a_brief_md_from_the_repository(tmp_path, monkeypatch):
     controller.execute(run_id, None, local=repo)
     res = controller.get(run_id)["state"]["result"]
     assert res["brief"].startswith("Corner shop") and all("stock lookups must keep working" in p for p in prompts)
+
+
+def test_agent_fixes_the_problems_it_is_handed_without_searching(monkeypatch):
+    from app.agent_api import target_from_vuln
+
+    monkeypatch.setattr(settings, "agent_mode", "fast")
+    monkeypatch.setattr(model, "ask", FastScript())
+    vulns = [{"id": 1, "type": "SQL_INJECTION", "title": "SQL injection", "severity": "critical", "cwe": "CWE-89",
+              "file": "shop/db.py", "line": 23, "description": "f-string query"},
+             {"id": 2, "type": "PATH_TRAVERSAL", "title": "Path traversal", "severity": "high", "cwe": "CWE-22",
+              "file": "shop/files.py", "line": 10, "description": "joined path"}]
+    run_id = controller.create("dev", "me/shop", None, None)
+    controller.execute(run_id, None, target=[target_from_vuln(v) for v in vulns], local=DEMO_SHOP)
+    run = controller.get(run_id)
+    res = run["state"]["result"]
+    steps = {s["key"]: s for s in run["state"]["steps"]}
+    assert steps["discover"]["status"] == "skipped" and "Fixing 2 problems from the dashboard" in steps["discover"]["note"]
+    assert [h["file"] for h in res["handling"]] == ["shop/db.py", "shop/files.py"]
+    assert run["verdict"] == "verified" and sorted(x["finding"]["file"] for x in res["fixes"]) == ["shop/db.py", "shop/files.py"]

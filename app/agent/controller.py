@@ -184,9 +184,10 @@ def _tools() -> dict:
             "model": model.model_name(), "isolation": "temporary folder, stripped environment (no container)"}
 
 
-def execute(run_id: int, token: str | None, target: dict | None = None, local: Path | None = None,
+def execute(run_id: int, token: str | None, target: dict | list | None = None, local: Path | None = None,
             brief: str = "") -> None:
-    """Run the whole pipeline for one run (blocking). `target` is a known finding (dashboard alert)."""
+    """Run the whole pipeline for one run (blocking). `target` is a known finding (dashboard alert), or a list of
+    them (Fix all on a repository), which skips discovery."""
     run = Run(run_id)
     row = get(run_id)
     res = run.result
@@ -215,8 +216,13 @@ def execute(run_id: int, token: str | None, target: dict | None = None, local: P
 
         # 3. Discover -------------------------------------------------------------------------
         if target:
-            findings = [target]
-            run.step("discover", "skipped", f"Alert from code scanning: {target['title']} at {target['file']}:{target['line']}")
+            findings = list(target) if isinstance(target, list) else [target]
+            res["handling"] = [{k: f.get(k) for k in ("title", "file", "line", "severity")} for f in findings]
+            run.step("discover", "skipped",
+                     f"Alert from code scanning: {findings[0]['title']} at {findings[0]['file']}:{findings[0]['line']}"
+                     if len(findings) == 1 else
+                     f"Fixing {len(findings)} problems from the dashboard: " +
+                     "; ".join(f"{f['title']} in {f['file']}:{f['line']}" for f in findings))
         else:
             run.step("discover", "running", "Scanning with SecureFix rules, Bandit, Semgrep and CodeQL")
             cands, sources = discover.gather(ws, run.rec, token)
@@ -522,7 +528,7 @@ def _failure_output(rec: Recorder) -> str:
     return "\n---\n".join(tails)[-5000:]
 
 
-def start(login: str, repo: str, token: str | None, ref: str | None = None, target: dict | None = None,
+def start(login: str, repo: str, token: str | None, ref: str | None = None, target: dict | list | None = None,
           vuln_id: int | None = None, brief: str = "") -> int:
     run_id = create(login, repo, ref, vuln_id)
 
