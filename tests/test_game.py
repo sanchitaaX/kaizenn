@@ -162,3 +162,57 @@ def test_delete_user_data_removes_game_rows():
     with db.tx() as conn:
         assert conn.execute("SELECT COUNT(*) FROM xp_events WHERE login = ?", (LOGIN,)).fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM rewards WHERE login = ?", (LOGIN,)).fetchone()[0] == 0
+
+
+from app.agent import controller  # noqa: E402
+
+
+@pytest.fixture
+def demo():
+    with TestClient(app, base_url="http://testserver") as c:
+        assert c.get("/auth/demo", follow_redirects=False).status_code == 302
+        yield c
+
+
+def demo_login(c) -> str:
+    return c.get("/api/me").json()["user"]["login"]
+
+
+def run_with_seed(login: str, seed: dict | None) -> int:
+    run_id = controller.create(login, "me/shop", None, None)
+    run = controller.get(run_id)
+    if seed:
+        run["state"]["result"]["quiz_seed"] = seed
+    controller._save(run_id, run["state"])
+    return run_id
+
+
+def test_profile_switch_turns_the_game_on_without_touching_modes(demo):
+    assert demo.get("/api/game").json() == {"enabled": False}
+    r = demo.post("/api/profile/modes", json={"game_mode": True}).json()
+    assert r["game_mode"] is True and r["user"]["game_mode"] is True
+    s = demo.get("/api/game").json()
+    assert s["enabled"] is True and s["xp"] == 0 and s["level"]["name"] == "Novice" and len(s["quests"]) == 6
+    assert demo.post("/api/profile/modes", json={"game_mode": False}).json()["game_mode"] is False
+
+
+def test_quiz_endpoints(demo):
+    login = demo_login(demo)
+    seed = game.quiz_seed({"type": "PATH_TRAVERSAL", "file": "shop/files.py", "line": 4}, SOURCE)
+    run_id = run_with_seed(login, seed)
+    assert demo.get(f"/api/game/quiz/{run_id}").status_code == 409  # off
+    demo.post("/api/profile/modes", json={"game_mode": True})
+    q = demo.get(f"/api/game/quiz/{run_id}").json()
+    assert q["answered"] is None and "PATH_TRAVERSAL" in [c["key"] for c in q["choices"]] and "type" not in q
+    assert demo.post(f"/api/game/quiz/{run_id}", json={"choice": "NOPE"}).status_code == 422
+    a = demo.post(f"/api/game/quiz/{run_id}", json={"choice": "PATH_TRAVERSAL"}).json()
+    assert a["correct"] is True and a["points"] == 30
+    assert demo.get(f"/api/game/quiz/{run_id}").json()["answered"]["correct"] is True
+
+
+def test_quiz_404_without_seed_or_for_someone_elses_run(demo):
+    demo.post("/api/profile/modes", json={"game_mode": True})
+    no_seed = run_with_seed(demo_login(demo), None)
+    assert demo.get(f"/api/game/quiz/{no_seed}").status_code == 404
+    other = run_with_seed("someone-else", game.quiz_seed({"type": "XSS", "file": "a.py", "line": 3}, SOURCE))
+    assert demo.get(f"/api/game/quiz/{other}").status_code == 404

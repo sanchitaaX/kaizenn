@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from app import agent_api, api, auth, fleet_api, pages
+from app import agent_api, api, auth, fleet_api, game_api, pages
 from app.config import settings
 
 
@@ -56,5 +56,6 @@ app.include_router(api.router)
 app.include_router(fleet_api.router)
 app.include_router(fleet_api.hooks)
 app.include_router(agent_api.router)
+app.include_router(game_api.router)
 app.include_router(pages.router)
 

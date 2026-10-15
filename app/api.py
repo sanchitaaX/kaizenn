@@ -70,6 +70,7 @@ class ProfileIn(BaseModel):
     role: Role | None = None
     report_mode: bool | None = None
     learn_mode: bool | None = None
+    game_mode: bool | None = None
 
 
 class RuleIn(BaseModel):
@@ -305,13 +306,16 @@ def update_profile(body: ProfileIn, user: dict = Depends(require_user)):
         fields["report_mode"] = body.report_mode
     if body.learn_mode is not None:
         fields["learn_mode"] = body.learn_mode
+    if body.game_mode is not None:  # Quests & rewards: not an answer mode, so the keep-one-on rule ignores it
+        fields["game_mode"] = body.game_mode
     report_mode = fields.get("report_mode", user["report_mode"])
     learn_mode = fields.get("learn_mode", user["learn_mode"])
     if not report_mode and not learn_mode:
         raise HTTPException(status_code=422, detail="Keep at least one mode on")
     saved = db.update_user(user["login"], **fields)
     # learn_mode / report_mode are repeated at the top level for the profile screen's toggles.
-    return {"user": saved, "learn_mode": saved["learn_mode"], "report_mode": saved["report_mode"]}
+    return {"user": saved, "learn_mode": saved["learn_mode"], "report_mode": saved["report_mode"],
+            "game_mode": saved["game_mode"]}
 
 
 class RoleIn(BaseModel):
