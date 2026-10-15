@@ -22,7 +22,7 @@
 
 .pf-repos { margin-top: var(--s-3); }
 .pf-repos .row-title { font-weight: 500; }
-.pf-section > .muted { margin-top: var(--s-3); }
+.pf-empty { margin-top: var(--s-3); }
 
 @media (max-width: 560px) {
   .pf-account { flex-wrap: wrap; }

@@ -56,7 +56,7 @@
   /* Layout */
   --nav-h: 56px;
   --w-chat: 760px;
-  --w-page: 1040px;
+  --w-page: 760px;
   --sidebar-w: 264px;
 
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -161,7 +161,7 @@ hr { border: 0; border-top: 1px solid var(--hairline); margin: var(--s-4) 0; }
   width: 100%; max-width: calc(var(--w-page) + 2 * var(--s-5));
   margin: 0 auto; padding: var(--s-6) var(--s-5) var(--s-7);
 }
-.page-narrow { max-width: calc(640px + 2 * var(--s-5)); }
+.page-narrow { max-width: calc(var(--w-page) + 2 * var(--s-5)); }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s-4); margin-bottom: var(--s-5); }
 .page-title { font-size: var(--fs-28); }
 .page-sub { margin-top: var(--s-1); color: var(--ink-soft); }

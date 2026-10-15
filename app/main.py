@@ -19,6 +19,15 @@ app.add_middleware(
 )
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+
+@app.middleware("http")
+async def revalidate_static(request, call_next):
+    """Make browsers re-check CSS/JS on every load so design changes show up without a hard refresh."""
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
 app.include_router(auth.router)
 app.include_router(api.router)
 app.include_router(pages.router)

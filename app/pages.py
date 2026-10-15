@@ -139,7 +139,7 @@ def old_to_chat():
 # --------------------------------------------------------------------------- assets
 
 
-AVATAR_TINTS = ["#d9d0ff", "#cdeedd", "#ffd9e6", "#d6e6ff", "#ffe8c2", "#d3f1ee"]
+AVATAR_TINTS = ["#e3e5f7", "#eceef2"]  # accent tint and neutral only
 
 
 @router.get("/avatar/{login}.svg")
@@ -153,6 +153,6 @@ def avatar(login: str):
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
         f'<rect width="64" height="64" fill="{tint}"/>'
         f'<text x="32" y="41" font-family="Urbanist, Arial, sans-serif" font-size="26" font-weight="700" '
-        f'text-anchor="middle" fill="#1d2033">{initial}</text></svg>'
+        f'text-anchor="middle" fill="#2b303b">{initial}</text></svg>'
     )
-    return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "max-age=86400"})
+    return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "max-age=300"})

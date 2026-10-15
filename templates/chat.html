@@ -1,2 +1,49 @@
 {% extends "base.html" %}
-{% block content %}<p>chat</p>{% endblock %}
+{% from "_macros.html" import icon %}
+
+{% block title %}Chat - SecureFix{% endblock %}
+{% block styles %}<link rel="stylesheet" href="/static/css/pages/chat.css">{% endblock %}
+
+{% block content %}
+<div class="chat-layout" id="chat"
+     data-analysis-id="{{ analysis_id or '' }}"
+     data-name="{{ user.name or user.login or '' }}"
+     data-learn="{{ 1 if user.learn_mode else 0 }}"
+     data-report="{{ 1 if user.report_mode else 0 }}">
+
+  <aside class="chat-sidebar" id="sidebar" aria-label="Earlier checks">
+    <button class="btn btn-primary btn-block" id="new-chat" type="button">{{ icon('spark', 16) }}New analysis</button>
+    <h2 class="chat-sidebar-title" id="history-title">Recent checks</h2>
+    <nav class="history" id="history" aria-labelledby="history-title">
+      <span class="skeleton skeleton-line-lg"></span>
+      <span class="skeleton skeleton-line-sm"></span>
+    </nav>
+  </aside>
+
+  <section class="chat-main" aria-label="Chat">
+    <div class="chat-bar">
+      <button class="btn btn-ghost btn-icon chat-sidebar-toggle" type="button" data-toggle-sidebar aria-label="Show earlier checks" aria-controls="sidebar" aria-expanded="false">{{ icon('chevron', 18) }}</button>
+      <span class="chat-bar-title">Earlier checks</span>
+    </div>
+
+    <div class="thread-scroll" id="thread-scroll">
+      <div class="thread" id="thread" role="log" aria-live="polite" aria-relevant="additions"></div>
+    </div>
+
+    <form class="composer" id="composer" autocomplete="off">
+      <div class="composer-box" id="composer-box">
+        <div class="composer-attachments" id="attachments" hidden></div>
+        <div class="composer-row">
+          <button class="btn btn-ghost btn-icon" id="attach" type="button" aria-label="Attach a document" hidden>{{ icon('paperclip', 18) }}</button>
+          <textarea class="composer-input" id="input" rows="1" data-autogrow aria-label="Your message" placeholder="Choose a repository to begin" disabled></textarea>
+          <button class="btn btn-primary btn-icon" id="send" type="submit" aria-label="Send" disabled>{{ icon('send', 18) }}</button>
+        </div>
+      </div>
+      <p class="composer-hint">Enter to send. Shift and Enter for a new line.</p>
+      <input type="file" id="file" accept=".txt,.md,.pdf,.docx" hidden tabindex="-1">
+    </form>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}<script src="/static/js/pages/chat.js" defer></script>{% endblock %}
