@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS users (
     role         TEXT NOT NULL DEFAULT 'student',
     report_mode  INTEGER NOT NULL DEFAULT 0,
     learn_mode   INTEGER NOT NULL DEFAULT 1,
+    game_mode    INTEGER NOT NULL DEFAULT 0,
     onboarded    INTEGER NOT NULL DEFAULT 0,
     repo         TEXT,
     is_demo      INTEGER NOT NULL DEFAULT 0,
@@ -225,6 +226,9 @@ def connect() -> sqlite3.Connection:
                 if path != ":memory:":
                     conn.execute("PRAGMA journal_mode=WAL")
                 conn.executescript(SCHEMA)
+                user_cols = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
+                if "game_mode" not in user_cols:  # databases made before quests and rewards
+                    conn.execute("ALTER TABLE users ADD COLUMN game_mode INTEGER NOT NULL DEFAULT 0")
                 if settings.demo_mode:
                     if not conn.execute("SELECT 1 FROM users LIMIT 1").fetchone():
                         _seed_demo(conn, fresh=False)
@@ -380,6 +384,7 @@ def _user_dict(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
         "role": row["role"],
         "report_mode": bool(row["report_mode"]),
         "learn_mode": bool(row["learn_mode"]),
+        "game_mode": bool(row["game_mode"]),
         "repos": repos,
         "repo": row["repo"],
         "onboarded": bool(row["onboarded"]),
@@ -425,7 +430,7 @@ def ensure_demo_user() -> dict | None:
 
 
 def update_user(login: str, **fields) -> dict:
-    allowed = {"role", "report_mode", "learn_mode", "onboarded", "repo", "name"}
+    allowed = {"role", "report_mode", "learn_mode", "game_mode", "onboarded", "repo", "name"}
     sets = {k: (int(v) if isinstance(v, bool) else v) for k, v in fields.items() if k in allowed and v is not None}
     with tx() as conn:
         if sets:
@@ -1051,8 +1056,11 @@ def clear_history(login: str) -> int:
 
 
 def delete_user_data(login: str) -> None:
-    """Delete everything KAIZEN stores for this user: chats, repository list, GitHub token and profile.
+    """Delete everything KAIZEN stores for this user: chats, game progress, repository list, GitHub token and profile.
     Shared repository data (team commits and their reports) stays, because it belongs to the whole team."""
+    from app import game  # here, not at the top: game imports db
+
+    game.forget(login)
     clear_history(login)
     with tx() as conn:
         conn.execute("DELETE FROM user_repos WHERE login = ?", (login,))
