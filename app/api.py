@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, 
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 
-from app import db, github
+from app import db, game, github
 from app.auth import require_user, user_token
 from app.config import settings
 from app.engine import analysis as chat
@@ -446,6 +446,8 @@ def get_brief(user: dict = Depends(require_user)):
 def save_brief(body: BriefSave, user: dict = Depends(require_user)):
     repo = _repo_of(user)
     brief = db.save_brief(repo, body.summary.strip(), body.users.strip(), body.permissions.strip())
+    if brief["summary"]:
+        game.award_quietly(user["login"], "brief_saved", repo)
     out = {"brief": brief, "rules": db.list_rules(repo), "source": None}
     if body.generate:
         texts, source = generate_rules(brief)
@@ -602,6 +604,7 @@ def chat_ask(body: AskIn, user: dict = Depends(require_user)):
     text = body.text.strip()
     if not text:
         raise HTTPException(status_code=422, detail="Type a message first.")
+    game.award_quietly(user["login"], "daily_chat", game.today())
     if not llm.is_configured():
         return {"reply": "The AI model is not set up on this server, so I can only run checks. Type a repository as "
                          "owner/name or paste its GitHub link to start one.", "live_ai": False}
@@ -671,6 +674,7 @@ def _analysis_view(a: dict) -> dict:
 @router.post("/analyses", status_code=202)
 def start_analysis(body: AnalysisIn, user: dict = Depends(require_user)):
     """Start checking one commit. Poll GET /api/analyses/{id} for the steps and the result."""
+    game.award_quietly(user["login"], "daily_chat", game.today())
     repo = body.repo.strip()
     sha = body.sha.strip()
     if not db.SHA_RE.match(sha):
@@ -748,6 +752,7 @@ def analysis_pull_request(analysis_id: int, user: dict = Depends(require_user)):
         raise HTTPException(status_code=404, detail="Commit not found.")
     pr = _open_pr(user, a["repo"], commit)
     db.set_analysis_pull_request(analysis_id, pr)
+    game.award_quietly(user["login"], "pr_opened", f"analysis-{analysis_id}")
     return pr
 
 

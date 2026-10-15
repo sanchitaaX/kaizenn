@@ -21,7 +21,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
-from app import db
+from app import db, game
 from app.api import same_origin
 from app.auth import require_user, user_token
 from app.config import settings
@@ -233,7 +233,10 @@ def save_brief(repo_id: int, body: BriefIn, user: dict = Depends(require_user)):
         if "\x00" in f.text:
             raise HTTPException(status_code=422, detail=f"{f.name} is not a text file. Attach text, Markdown or code.")
         files.append({"name": f.name.replace("\\", "/").rsplit("/", 1)[-1][:120], "text": f.text})
-    return store.set_brief(repo_id, ws, body.brief.strip(), body.keep_files, files)
+    saved = store.set_brief(repo_id, ws, body.brief.strip(), body.keep_files, files)
+    if body.brief.strip():
+        game.award_quietly(user["login"], "brief_saved", f"repo-{repo_id}")
+    return saved
 
 
 def _brief_repo(repo_id: int, user: dict) -> dict:

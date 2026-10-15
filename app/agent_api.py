@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from app import db, github
+from app import db, game, github
 from app.agent import controller, rules
 from app.api import same_origin
 from app.auth import require_user, user_token
@@ -38,6 +38,7 @@ def _view(run: dict) -> dict:
     state = run["state"]
     res = dict(state.get("result") or {})
     res.pop("files", None)
+    res["quiz_ready"] = bool(res.pop("quiz_seed", None))  # the quiz answer stays on the server
     return {"id": run["id"], "repo": run["repo"], "status": run["status"], "verdict": run["verdict"],
             "vuln_id": run["vuln_id"], "created_label": run["created_label"], "steps": state["steps"], "result": res}
 
@@ -74,6 +75,7 @@ def start_run(body: RunIn, user: dict = Depends(require_user)):
     from app.fleet_api import _workspaces
 
     brief = store.brief_for(_workspaces(user), repo)
+    game.award_quietly(user["login"], "daily_chat", game.today())
     run_id = controller.start(user["login"], repo, token, ref=(body.ref or None), target=target, vuln_id=body.vuln_id,
                               brief=brief)
     return {"id": run_id}
@@ -137,6 +139,7 @@ def pull_request(run_id: int, user: dict = Depends(require_user)):
     res["pull_request"] = pr
     run["state"]["result"]["pull_request"] = pr
     controller._save(run_id, run["state"])
+    game.award_quietly(user["login"], "pr_opened", f"run-{run_id}")
     if run.get("vuln_id"):
         store.set_vuln_status(run["vuln_id"], "pr_open")
     return pr

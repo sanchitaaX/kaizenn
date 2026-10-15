@@ -16,7 +16,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from app import db
+from app import db, game
 from app.agent import analyze, discover, evidence, fast, model, patcher, rules, sectest, testrun, verify, workspace
 from app.agent.sandbox import Recorder, version
 from app.config import settings
@@ -241,6 +241,15 @@ def execute(run_id: int, token: str | None, target: dict | None = None, local: P
             run.step("discover", "done", f"{len(findings)} {'candidates' if fast_mode else 'confirmed'} · top: {findings[0]['title']} in "
                                          f"{findings[0]['file']}:{findings[0]['line']}")
 
+        top = findings[0]
+        try:
+            seed = game.quiz_seed(top, ws.read(top["file"]) if ws.exists(top["file"]) else "")
+        except Exception:
+            log.exception("Could not build the quiz for run %s", run_id)
+            seed = None
+        if seed:
+            res["quiz_seed"] = seed  # "Guess the bug" in the chat; the run view never sends it
+
         # 4. Root cause: the top findings in parallel, one per vulnerable function --------------
         run.step("analyze", "running", "Reading the vulnerable code and its callers")
         picked, seen = [], set()
@@ -370,7 +379,9 @@ def execute(run_id: int, token: str | None, target: dict | None = None, local: P
             evidence.write(run_id, res, [c.as_dict() for c in run.rec.commands], run.calls.calls)
         except OSError:
             log.exception("Could not write evidence for run %s", run_id)
-        _save(run_id, run.state, final_status, final_verdict or res.get("verdict"))
+        verdict = final_verdict or res.get("verdict")
+        _save(run_id, run.state, final_status, verdict)
+        game.on_run_finished(row["login"], run_id, final_status, verdict)
         if base_job:
             try:
                 base_job.result()  # never delete the folder under a test run still going

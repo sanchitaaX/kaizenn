@@ -216,3 +216,29 @@ def test_quiz_404_without_seed_or_for_someone_elses_run(demo):
     assert demo.get(f"/api/game/quiz/{no_seed}").status_code == 404
     other = run_with_seed("someone-else", game.quiz_seed({"type": "XSS", "file": "a.py", "line": 3}, SOURCE))
     assert demo.get(f"/api/game/quiz/{other}").status_code == 404
+
+
+from app import agent_api  # noqa: E402
+
+
+def test_run_view_hides_the_quiz_answer():
+    seed = game.quiz_seed({"type": "XSS", "file": "a.py", "line": 3}, SOURCE)
+    run = {"id": 1, "repo": "me/shop", "status": "running", "verdict": None, "vuln_id": None, "created_label": "",
+           "state": {"steps": [], "result": {"quiz_seed": seed, "files": {"a.py": "x"}}}}
+    view = agent_api._view(run)
+    assert "quiz_seed" not in view["result"] and view["result"]["quiz_ready"] is True
+    assert "XSS" not in str(view)
+    run["state"]["result"] = {}
+    assert agent_api._view(run)["result"]["quiz_ready"] is False
+
+
+def test_chat_and_brief_award_xp_only_when_on(demo):
+    demo.post("/api/chat/ask", json={"text": "hello"})
+    demo.put("/api/brief", json={"summary": "A shop", "users": "buyers", "permissions": "admins refund"})
+    demo.post("/api/profile/modes", json={"game_mode": True})
+    assert demo.get("/api/game").json()["xp"] == 0  # nothing counted while off
+    demo.post("/api/chat/ask", json={"text": "hello"})
+    demo.post("/api/chat/ask", json={"text": "again"})  # same day: counted once
+    demo.put("/api/brief", json={"summary": "A shop", "users": "buyers", "permissions": "admins refund"})
+    kinds = sorted(e["kind"] for e in demo.get("/api/game").json()["recent"])
+    assert kinds == ["brief_saved", "daily_chat", "quest"]  # quest = Brief writer
