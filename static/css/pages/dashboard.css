@@ -424,3 +424,14 @@ dialog::backdrop { background: rgba(43, 48, 59, 0.38); }
 .brief textarea { width: 100%; min-height: 84px; resize: vertical; font: inherit; font-size: var(--fs-13); }
 .brief-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--s-2); }
 .brief-saved { font-size: var(--fs-12); color: var(--ink-soft); }
+
+/* ---------- Learn from this fix (fix review dialog) ---------- */
+.learn-box { margin-top: var(--s-4); padding: var(--s-3) var(--s-4); border-radius: var(--r-md); border: 1px solid var(--hairline); background: var(--surface-soft); }
+.learn-box h3 { display: flex; align-items: center; gap: 6px; font-size: var(--fs-13); margin-bottom: var(--s-2); }
+.learn-remember { padding-left: 18px; list-style: disc; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-13); margin-bottom: var(--s-3); }
+.learn-links { display: flex; flex-direction: column; gap: 6px; }
+.learn-res { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-13); text-decoration: none; }
+.learn-res-kind { flex: none; font-size: var(--fs-12); font-weight: 600; padding: 1px 8px; border-radius: var(--r-pill); background: var(--blue-100); color: var(--ink); }
+.learn-res-title { font-weight: 600; }
+.learn-res-src { color: var(--ink-soft); }
+.learn-res:hover .learn-res-title { text-decoration: underline; }

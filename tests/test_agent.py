@@ -327,6 +327,7 @@ def test_demo_shop_three_vulnerabilities_are_fixed_and_verified(tmp_path, monkey
     fixes = res["fixes"]
     assert sorted(x["finding"]["file"] for x in fixes) == ["shop/db.py", "shop/files.py", "shop/tools.py"]
     assert all(x["verdict"] == "verified" for x in fixes)
+    assert all(x["learning"]["resources"] and x["learning"]["remember"] for x in fixes)  # study material per fix
     assert all(x["security_test"]["before"]["outcome"] == "assert_failed" for x in fixes)
     assert len({x["security_test"]["path"] for x in fixes}) == 3  # same name from the model, no overwrite
     assert res["baseline"][0]["passed"] == 10 and res["patched"][0]["passed"] == 10

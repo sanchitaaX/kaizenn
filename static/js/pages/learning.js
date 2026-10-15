@@ -28,7 +28,63 @@
     var k = String(kind || "").toLowerCase();
     if (k.indexOf("video") === 0) return { icon: "play", label: "Video" };
     if (k.indexOf("practice") === 0 || k.indexOf("lab") !== -1) return { icon: "lab", label: "Practice lab" };
+    if (k.indexOf("reference") === 0) return { icon: "guide", label: "Reference" };
     return { icon: "guide", label: "Guide" };
+  }
+
+  function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+
+  // One card per kind of problem found in the person's own repositories: where, how many fixed, what to study.
+  function repoCard(t) {
+    var c = el("article", "card learn-card");
+    var head = el("div", "learn-head");
+    var left = el("div");
+    left.appendChild(el("h2", "learn-name", t.name + (t.cwe ? " (" + t.cwe + ")" : "")));
+    if (t.plain) left.appendChild(el("p", "learn-plain", t.plain));
+    var where = (t.repos || []).map(function (r) { return r.repo.split("/")[1] + " " + r.count; }).join(", ");
+    var more = t.repo_count > (t.repos || []).length ? " and " + (t.repo_count - t.repos.length) + " more" : "";
+    left.appendChild(el("p", "learn-count", "Found " + plural(t.total, "time", "times") + " in " +
+      plural(t.repo_count, "repository", "repositories") + ": " + where + more + "."));
+    var done = [];
+    if (t.fixed) done.push(plural(t.fixed, "fixed", "fixed"));
+    if (t.in_review) done.push(t.in_review + " waiting for review");
+    if (t.agent_fixed) done.push(plural(t.agent_fixed, "fix", "fixes") + " by the SecureFix agent");
+    if (done.length) left.appendChild(el("p", "learn-count learn-done", "Progress: " + done.join(" · ") + "."));
+    head.appendChild(left);
+    var link = el("a", "learn-link", "See them ");
+    link.href = "/dashboard";
+    link.appendChild(icon("arrow"));
+    head.appendChild(link);
+    c.appendChild(head);
+
+    if (t.unconfirmed) {
+      var note = el("p", "learn-note");
+      note.appendChild(icon("alert"));
+      note.appendChild(el("span", null, (t.unconfirmed === t.total ? "All of these were" : t.unconfirmed + " of these were") +
+        " flagged by SecureFix's pattern scan and are not confirmed yet. Use Fix on the dashboard to have the agent check them."));
+      c.appendChild(note);
+    }
+    if ((t.remember || []).length) {
+      var box = el("div", "learn-remember");
+      box.appendChild(el("h3", "learn-sub", "Remember"));
+      var ul = el("ul");
+      t.remember.forEach(function (x) { ul.appendChild(el("li", null, x)); });
+      box.appendChild(ul);
+      c.appendChild(box);
+    }
+    if ((t.resources || []).length) {
+      var list = el("div", "list learn-resources");
+      t.resources.forEach(function (r) { list.appendChild(resourceRow(r)); });
+      c.appendChild(list);
+    }
+    return c;
+  }
+
+  function section(title, sub) {
+    var s = el("div", "learn-section");
+    s.appendChild(el("h2", "learn-section-title", title));
+    if (sub) s.appendChild(el("p", "learn-section-sub", sub));
+    return s;
   }
 
   function safeUrl(u) {
@@ -131,7 +187,18 @@
   function load() {
     window.SecureFix.api("/api/learning").then(function (data) {
       var list = (data && data.mistakes) || [];
-      show(list.length ? list.map(card) : [empty()]);
+      var repos = (data && data.repos) || [];
+      var nodes = [];
+      if (repos.length) {
+        nodes.push(section("From your repositories",
+          "Each kind of problem SecureFix found in your GitHub repositories, how far the fixes have got, and what to study."));
+        repos.forEach(function (t) { nodes.push(repoCard(t)); });
+      }
+      if (list.length) {
+        if (repos.length) nodes.push(section("From your commits", "Mistakes found in commits you wrote."));
+        list.forEach(function (m) { nodes.push(card(m)); });
+      }
+      show(nodes.length ? nodes : [empty()]);
     }).catch(failed);
   }
 

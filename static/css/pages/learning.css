@@ -23,3 +23,11 @@
 @media (max-width: 520px) {
   .learn-head { flex-direction: column; gap: var(--s-2); }
 }
+
+/* From your repositories */
+.learn-section { margin-top: var(--s-2); }
+.learn-section-title { font-size: var(--fs-15); font-weight: 700; }
+.learn-section-sub { font-size: var(--fs-13); color: var(--ink-soft); margin-top: 2px; }
+.learn-done { color: var(--ink); font-weight: 600; }
+.learn-sub { font-size: var(--fs-12); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); margin-bottom: var(--s-1); }
+.learn-remember ul { padding-left: 18px; list-style: disc; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-13); }

@@ -744,4 +744,33 @@ def learning(user: dict = Depends(require_user)):
             "resources": [{k: r[k] for k in ("kind", "title", "source", "url", "minutes") if k in r}
                           for r in learning_for(m["bug_type"])],
         })
-    return {"mistakes": out}
+    return {"mistakes": out, "repos": _repo_learning(user)}
+
+
+def _repo_learning(user: dict) -> list[dict]:
+    """Problems found and fixed in this person's own GitHub repositories, by type, with what to study."""
+    from app.agent import controller
+    from app.fleet import catalog, learn, store
+    from app.fleet_api import _own_ws
+
+    ws = _own_ws(user)
+    if not ws or ws == store.DEMO:
+        return []
+    agent_fixed: dict[str, int] = {}
+    for run in controller.recent(user["login"], 50):
+        if run["verdict"] not in ("verified", "inconclusive"):
+            continue
+        res = (controller.get(run["id"]) or {}).get("state", {}).get("result", {})
+        for f in res.get("fixes") or ([{"finding": res["finding"], "verdict": res["verdict"]}] if res.get("finding") else []):
+            if f.get("verdict") != "failed":
+                kind = f["finding"].get("type") or ""
+                agent_fixed[kind] = agent_fixed.get(kind, 0) + 1
+    out = []
+    for t in store.learning_summary(ws):
+        info, study = catalog.info(t["type"]), learn.for_type(t["type"], t["cwe"])
+        out.append({"type": t["type"], "name": info["name"], "plain": info["plain"], "cwe": t["cwe"] or info.get("cwe"),
+                    "total": t["total"], "open": t["open"], "fixed": t["fixed"], "in_review": t["in_review"],
+                    "unconfirmed": t["unconfirmed"],
+                    "agent_fixed": agent_fixed.get(t["type"], 0), "repos": t["repos"][:5],
+                    "repo_count": len(t["repos"]), "remember": study["remember"], "resources": study["resources"]})
+    return out

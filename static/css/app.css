@@ -75,9 +75,11 @@ body {
   line-height: 1.55;
   color: var(--ink);
   background:
-    radial-gradient(900px 280px at 50% -120px, rgba(94, 106, 210, 0.07), transparent 70%),
-    var(--canvas);
+    radial-gradient(1100px 420px at 12% -140px, rgba(94, 106, 210, 0.16), transparent 70%),
+    radial-gradient(900px 380px at 92% 0, rgba(143, 151, 227, 0.14), transparent 70%),
+    linear-gradient(180deg, #eef0fb 0%, var(--canvas) 420px, #f2f1fa 100%);
   background-repeat: no-repeat;
+  background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -132,9 +134,13 @@ hr { border: 0; border-top: 1px solid var(--hairline); margin: var(--s-4) 0; }
   height: var(--nav-h);
   display: flex; align-items: center; gap: var(--s-4);
   padding: 0 var(--s-5);
-  background: var(--surface);
-  border-bottom: 1px solid var(--hairline);
+  background: linear-gradient(90deg, rgba(94, 106, 210, 0.24) 0%, rgba(143, 151, 227, 0.16) 45%, rgba(214, 205, 245, 0.22) 100%),
+    var(--surface);
+  border-bottom: 1px solid rgba(94, 106, 210, 0.16);
+  box-shadow: 0 1px 12px rgba(94, 106, 210, 0.06);
 }
+.topbar .tab:hover { background: rgba(255, 255, 255, 0.6); }
+.topbar .tab[aria-current="page"], .topbar .tab.is-active { background: rgba(255, 255, 255, 0.75); }
 .brand {
   display: inline-flex; align-items: center; gap: var(--s-2);
   font-weight: 700; font-size: var(--fs-17); color: var(--ink); letter-spacing: -0.01em;

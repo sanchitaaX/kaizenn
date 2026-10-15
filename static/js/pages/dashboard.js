@@ -56,6 +56,7 @@
     down: '<path d="M12 5v14"/><path d="m6 13 6 6 6-6"/>',
     download: '<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>',
     up: '<path d="M12 19V5"/><path d="m6 11 6-6 6 6"/>',
+    book: '<path d="M4 5.5C4 4.7 4.7 4 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5c0-.8-.7-1.5-1.5-1.5H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/>',
   };
   function icon(name, size) {
     const el = s("svg", { class: "icon", width: size || 16, height: size || 16, viewBox: "0 0 24 24", "aria-hidden": "true", focusable: "false" });
@@ -709,6 +710,20 @@
     renderFix(data);
   }
 
+  // What to remember about this kind of problem, and where to read and practise (OWASP, PortSwigger, CWE).
+  function learnBox(learning) {
+    if (!learning || !(learning.resources || []).length) return null;
+    const links = learning.resources.map((r) => {
+      const a = h("a", "learn-res", [h("span", "learn-res-kind", r.kind), h("span", "learn-res-title", r.title),
+        h("span", "learn-res-src", r.source), icon("external", 12)]);
+      a.href = r.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+      return h("li", null, a);
+    });
+    return h("section", "learn-box", [h("h3", null, [icon("book", 14), "Learn from this fix"]),
+      h("ul", "learn-remember", (learning.remember || []).map((t) => h("li", null, t))),
+      h("ul", "learn-links", links)]);
+  }
+
   function renderFix(data) {
     const v = data.vuln, f = data.fix;
     $("fix-title").textContent = v.title;
@@ -760,7 +775,7 @@
     ]);
     const proofBox = h("section", "proof", [h("div", "proof-head", [h("h3", null, "Proof the fix is safe"),
       h("span", "proof-verdict")]), h("ul", "proof-list"), h("p", "proof-note")]);
-    $("fix-body").replaceChildren(explain, diff, proofBox);
+    $("fix-body").replaceChildren(explain, diff, proofBox, learnBox(data.learning));
 
     const demo = data.source === "demo";
     const note = h("span", "fix-foot-note", demo

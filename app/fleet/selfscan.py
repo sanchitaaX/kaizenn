@@ -7,10 +7,25 @@ and Bandit (Python). These are pattern matches, not findings the model has confi
 
 from __future__ import annotations
 
+import re
+
 from app.agent import discover, rules, workspace
 from app.agent.sandbox import Recorder
 
 MAX_FINDINGS = 60
+# Without the model's triage, a SQL hit only counts when the flagged lines hold a real statement: this drops
+# log messages ("insert error for ..."), UI text ("Delete vendor ...") and schema migrations.
+SQL_SHAPE = re.compile(r"\b(select\b[^;]{0,200}?\bfrom|insert\s+into|update\s+[\w.`\"\[\]]+\s+set|delete\s+from)\b", re.I)
+
+
+def _plausible(ws, c: dict) -> bool:
+    if c["type"] != "SQL_INJECTION":
+        return True
+    try:
+        lines = ws.read(c["file"]).splitlines()
+    except OSError:
+        return False
+    return bool(SQL_SHAPE.search("\n".join(lines[max(0, c["line"] - 1):c["line"] + 2])))
 
 
 def scan(token: str, repo: dict) -> list[dict]:
@@ -25,14 +40,14 @@ def scan(token: str, repo: dict) -> list[dict]:
             return []
         raise
     try:
-        cands = discover.from_rules(ws) + discover.from_bandit(ws, Recorder())
+        cands = [c for c in discover.from_rules(ws) + discover.from_bandit(ws, Recorder()) if _plausible(ws, c)]
     finally:
         ws.cleanup()
     cands.sort(key=lambda c: (rules.SEVERITY_RANK.get(c["severity"], 4), c["file"], c["line"]))
     out, seen = [], set()
     for c in cands:
         key = (c["file"], c["line"], c["type"])
-        if key in seen:
+        if key in seen or (c["file"], c["line"] - 1, c["type"]) in seen:  # one statement split over two lines
             continue
         seen.add(key)
         note = f": {c['note'].strip()}" if c.get("note") else ""

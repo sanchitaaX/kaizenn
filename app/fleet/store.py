@@ -319,6 +319,25 @@ def open_vulns(repo_id: int) -> list[dict]:
                 ORDER BY {SEVERITY_SQL}, v.first_seen_at""", (repo_id,)).fetchall()
     return [_vuln_dict(r) for r in rows]
 
+
+def learning_summary(workspace: str) -> list[dict]:
+    """Problems in one workspace grouped by type, for the Learning page: how often, where, and how many are fixed."""
+    with _tx() as conn:
+        rows = conn.execute(
+            """SELECT v.type, MAX(v.cwe) AS cwe, COUNT(*) AS total,
+                      SUM(v.status = 'open') AS open, SUM(v.status = 'fixed') AS fixed,
+                      SUM(v.status IN ('fix_saved', 'pr_open')) AS in_review, SUM(v.source = 'securefix') AS unconfirmed,
+                      MAX(v.first_seen_at) AS last_seen
+               FROM fleet_vulns v JOIN fleet_repos r ON r.id = v.repo_id
+               WHERE r.workspace = ? GROUP BY v.type ORDER BY total DESC, v.type""", (workspace,)).fetchall()
+        repos = conn.execute(
+            """SELECT v.type, r.full_name, COUNT(*) AS n FROM fleet_vulns v JOIN fleet_repos r ON r.id = v.repo_id
+               WHERE r.workspace = ? GROUP BY v.type, r.full_name ORDER BY n DESC, r.full_name""", (workspace,)).fetchall()
+    where: dict[str, list[dict]] = {}
+    for r in repos:
+        where.setdefault(r["type"], []).append({"repo": r["full_name"], "count": r["n"]})
+    return [dict(r) | {"repos": where.get(r["type"], [])} for r in rows]
+
 def get_vuln(vuln_id: int, workspaces: list[str]) -> dict | None:
     where, args = _where(workspaces, "r.")
     with _tx() as conn:

@@ -1620,6 +1620,16 @@
         h("li", "is-" + g.status, [h("span", "agent-gate-mark", g.status === "pass" ? svg("check", 12) : g.status === "fail" ? svg("x", 12) : "–"),
           h("span", "agent-gate-label", g.label || g.key), h("span", "agent-gate-detail", g.detail || "")])))]));
     }
+    const learn = r.learning;
+    if (learn && (learn.resources || []).length) {
+      kids.push(h("section", "agent-section", [h("h4", null, "Learn from this fix"),
+        h("ul", "agent-reasons agent-learn-remember", (learn.remember || []).map((t) => h("li", null, t))),
+        h("ul", "agent-learn", learn.resources.filter((x) => safeUrl(x.url)).map((x) => {
+          const a = h("a", null, [h("span", "agent-learn-kind", x.kind), x.title, h("span", "agent-learn-src", " · " + x.source)]);
+          a.href = x.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+          return h("li", null, a);
+        }))]));
+    }
     return kids;
   }
 

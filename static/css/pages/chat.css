@@ -361,10 +361,10 @@ a.resource:hover { background: var(--surface-soft); text-decoration: none; }
     var(--surface);
 }
 
-/* Top bar on the chat page: the same wash on the left, above the sidebar, fading out to the right */
+/* Top bar on the chat page: the sidebar's wash on the left, then the app's nav gradient across */
 .topbar {
   background:
-    linear-gradient(90deg, rgba(94, 106, 210, 0.16) 0, rgba(94, 106, 210, 0.10) var(--sidebar-w), rgba(94, 106, 210, 0) 560px),
+    linear-gradient(90deg, rgba(94, 106, 210, 0.24) 0, rgba(94, 106, 210, 0.16) var(--sidebar-w), rgba(143, 151, 227, 0.14) 60%, rgba(214, 205, 245, 0.22) 100%),
     var(--surface);
 }
 
@@ -447,3 +447,11 @@ a.resource:hover { background: var(--surface-soft); text-decoration: none; }
 .agent-gate-detail { color: var(--ink-soft); overflow-wrap: anywhere; }
 .agent-actions { display: flex; gap: var(--s-2); flex-wrap: wrap; margin-top: var(--s-3); }
 .agent-note { font-size: var(--fs-12); color: var(--ink-faint); margin-top: var(--s-2); }
+
+/* Learn from this fix (agent result) */
+.agent-learn-remember { color: var(--ink); opacity: 1; margin-top: 0; }
+.agent-learn { display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-13); }
+.agent-learn a { text-decoration: none; }
+.agent-learn a:hover { text-decoration: underline; }
+.agent-learn-kind { display: inline-block; margin-right: 8px; font-size: var(--fs-12); font-weight: 600; padding: 1px 8px; border-radius: 999px; background: #e3e6f8; color: var(--ink); }
+.agent-learn-src { color: var(--ink-soft); }

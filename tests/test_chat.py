@@ -612,7 +612,7 @@ def test_learning_counts_repeats_and_sorts_by_how_often(demo):
 
 
 def test_learning_empty_for_a_new_user(gh_user, client):
-    assert client.get("/api/learning").json() == {"mistakes": []}
+    assert client.get("/api/learning").json() == {"mistakes": [], "repos": []}
 
 
 # --------------------------------------------------------------------------- profile

@@ -25,7 +25,7 @@ from app import db
 from app.api import same_origin
 from app.auth import require_user, user_token
 from app.config import settings
-from app.fleet import catalog, check, fixer, prove, risk, seed, store, sync, watch
+from app.fleet import catalog, check, fixer, learn, prove, risk, seed, store, sync, watch
 
 router = APIRouter(prefix="/api/fleet", dependencies=[Depends(same_origin)])
 hooks = APIRouter(prefix="/api/github")
@@ -115,6 +115,7 @@ def _fix_view(fix: dict, vuln: dict) -> dict:
         "vuln": {k: vuln.get(k) for k in ("id", "title", "severity", "cwe", "file", "line", "description", "status",
                                           "source", "alert_url", "full_name", "repo_id", "first_seen_label")},
         "plain": info["plain"], "source": vuln["source"], "proof": store.get_fix_proof(fix["id"]),
+        "learning": learn.for_type(vuln["type"], vuln.get("cwe")),
     }
 
 

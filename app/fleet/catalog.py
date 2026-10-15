@@ -398,6 +398,11 @@ def info(type_key: str | None) -> dict:
     t = TYPES.get(type_key or "")
     if t:
         return {"name": t["name"], "plain": t["plain"], "fix": t["fix"], "cwe": t["cwe"]}
+    from app.fleet.learn import LEARN  # wording for types without a prepared demo fix
+
+    extra = LEARN.get(type_key or "", {})
+    if extra.get("plain"):
+        return {**FALLBACK, "name": extra["name"], "plain": extra["plain"], "cwe": None}
     name = (type_key or "").replace("_", " ").strip().capitalize() or FALLBACK["name"]
     return {**FALLBACK, "name": name, "cwe": None}
 

@@ -20,6 +20,7 @@ from app import db
 from app.agent import analyze, discover, evidence, model, patcher, rules, sectest, testrun, verify, workspace
 from app.agent.sandbox import Recorder, version
 from app.config import settings
+from app.fleet import learn
 
 log = logging.getLogger(__name__)
 
@@ -278,6 +279,7 @@ def execute(run_id: int, token: str | None, target: dict | None = None, local: P
         changed = {f: ws.read(f) for f in pristine if f not in kept_tests and ws.exists(f)}
         last_kept = kept[-1] if kept else fixes[-1]
         res.update(finding=first["finding"], root_cause=first["root_cause"], security_test=first["security_test"],
+                   learning=first["learning"],
                    attempts=first["attempts"], gates=first["gates"], patched=last_kept["patched"],
                    comparison=last_kept["comparison"])
         res["patch"] = dict(first["patch"])
@@ -439,7 +441,8 @@ def _fix_one(run: Run, ws: workspace.Workspace, finding: dict, cause: dict, suit
             "gates": [{**g, "label": verify.LABELS.get(g["key"], g["key"])} for g in (last.get("gates") or gates)],
             "patch": {"diff": last.get("diff") or "", "explanation": last.get("explanation", ""),
                       "behaviour_change": last.get("behaviour_change", ""), "attempts": len(attempts), "files": changed},
-            "patched": [a.as_dict() for a in after], "comparison": cmp}
+            "patched": [a.as_dict() for a in after], "comparison": cmp,
+            "learning": learn.for_type(finding["type"], finding.get("cwe"))}
 
 def _failure_output(rec: Recorder) -> str:
     """The tail of the last failing test commands, for the next patch attempt."""
