@@ -19,7 +19,7 @@ from app import db  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.main import app  # noqa: E402
 
-APP_PAGES = ["/chat", "/commits", "/learning", "/profile"]
+APP_PAGES = ["/dashboard", "/chat", "/commits", "/learning", "/profile"]
 
 
 @pytest.fixture(autouse=True)
@@ -58,14 +58,14 @@ def test_signed_out_app_pages_redirect_to_login(client):
     assert client.get("/").status_code == 200
 
 
-def test_signed_in_login_goes_to_chat(demo):
+def test_signed_in_login_goes_to_dashboard(demo):
     r = demo.get("/login", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/chat"
+    assert r.status_code == 303 and r.headers["location"] == "/dashboard"
     assert demo.get("/login?error=state").status_code == 200
 
 
 def test_app_pages_render_for_a_signed_in_user(demo):
-    for path in ("/chat", "/commits", "/learning"):
+    for path in ("/dashboard", "/chat", "/chat?embed=1", "/commits", "/learning"):
         assert demo.get(path).status_code == 200, path
 
 
@@ -77,8 +77,8 @@ def test_profile_page_shows_the_user(demo):
 
 
 def test_old_routes_redirect(demo, client):
-    for path, target in [("/team", "/commits"), ("/dashboard", "/chat"), ("/brief", "/chat"),
-                         ("/onboarding", "/chat")]:
+    for path, target in [("/team", "/commits"), ("/brief", "/dashboard"),
+                         ("/onboarding", "/dashboard")]:
         r = demo.get(path, follow_redirects=False)
         assert r.status_code == 303 and r.headers["location"] == target, path
 

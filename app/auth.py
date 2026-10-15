@@ -1,6 +1,6 @@
 """GitHub sign-in (OAuth App flow) and the current-user helpers.
 
-Flow:  /auth/login  ->  github.com/login/oauth/authorize  ->  /auth/callback  ->  /chat
+Flow:  /auth/login  ->  github.com/login/oauth/authorize  ->  /auth/callback  ->  /dashboard
 
 - A random `state` is stored in the session and checked on the callback (CSRF protection).
 - The GitHub access token is stored in SQLite (tokens table) and never leaves the server.
@@ -70,7 +70,7 @@ def _safe_next(target: str | None) -> str | None:
 
 def _landing(user: dict, target: str | None) -> str:
     """Everyone lands in the chat. New users are student with Learn mode on (the database defaults)."""
-    return _safe_next(target) or "/chat"
+    return _safe_next(target) or "/dashboard"
 
 
 def _start_session(request: Request, login: str) -> None:

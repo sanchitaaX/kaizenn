@@ -33,5 +33,18 @@ class Settings:
     scan_step_delay: float = float(os.getenv("SCAN_STEP_DELAY", "1.2"))  # seconds between replayed steps
     engine_source_dir: str = os.getenv("ENGINE_SOURCE_DIR", "")  # local checkout scanned in live mode
 
+    # Organization dashboard: how often to look for new GitHub pushes (0 turns the watcher off), and the
+    # secret for the GitHub webhook at POST /api/github/webhook (empty turns the webhook off).
+    # Security repair agent and its model. LLM_TPM caps tokens per minute (0 = learn it from the provider's
+    # rate-limit errors); LLM_MAX_OUTPUT_TOKENS caps each answer; prompts are kept under LLM_MAX_PROMPT_CHARS.
+    llm_tpm: int = int(os.getenv("LLM_TPM", "0"))
+    llm_fallback_models: str = os.getenv("LLM_FALLBACK_MODELS", "")  # comma separated, tried when busy
+    llm_fallback_models: str = os.getenv("LLM_FALLBACK_MODELS", "")  # comma separated, tried when the model is busy
+    llm_rpm: int = int(os.getenv("LLM_RPM", "0"))  # requests per minute (Gemini's free tier allows about 10)
+    llm_max_output_tokens: int = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "2600"))
+    llm_max_prompt_chars: int = int(os.getenv("LLM_MAX_PROMPT_CHARS", "13000"))
+    fleet_watch_seconds: int = int(os.getenv("FLEET_WATCH_SECONDS", "60"))
+    github_webhook_secret: str = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+
 
 settings = Settings()

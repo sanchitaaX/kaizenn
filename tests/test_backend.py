@@ -109,7 +109,7 @@ def test_status_reports_demo_when_no_client_id(client):
 
 def test_demo_sign_in_without_client_id(client):
     r = client.get("/auth/login", follow_redirects=False)
-    assert r.status_code == 302 and r.headers["location"] == "/chat"
+    assert r.status_code == 302 and r.headers["location"] == "/dashboard"
     me = client.get("/api/me").json()
     assert me["user"]["login"] == "dhruv-carvelle"
     assert me["user"]["is_demo"] is True
@@ -144,7 +144,7 @@ def test_callback_signs_in_and_keeps_token_server_side(client, github_app):
     client.get("/auth/login", follow_redirects=False)
     state = session_payload(client)["oauth_state"]
     r = client.get(f"/auth/callback?code=abc&state={state}", follow_redirects=False)
-    assert r.status_code == 302 and r.headers["location"] == "/chat"
+    assert r.status_code == 302 and r.headers["location"] == "/dashboard"
 
     # Token is in SQLite only: not in the cookie, not in any API response.
     assert db.get_token("octo-dev") == FAKE_TOKEN
@@ -176,7 +176,7 @@ def test_callback_handles_denied_and_github_errors(client, github_app, monkeypat
 
 def test_next_param_cannot_leave_the_site(client):
     r = client.get("/auth/login?next=//evil.example/x", follow_redirects=False)
-    assert r.headers["location"] == "/chat"
+    assert r.headers["location"] == "/dashboard"
     client.cookies.clear()
     r = client.get("/auth/login?next=/team", follow_redirects=False)
     assert r.headers["location"] == "/team"
@@ -220,7 +220,7 @@ def test_onboarding_sets_role_repo_and_rules(client, github_app):
     client.get("/auth/login", follow_redirects=False)
     state = session_payload(client)["oauth_state"]
     r = client.get(f"/auth/callback?code=abc&state={state}", follow_redirects=False)
-    assert r.headers["location"] == "/chat"
+    assert r.headers["location"] == "/dashboard"
 
 
 def test_onboarding_rejects_bad_repo_name(demo):

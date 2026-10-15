@@ -513,3 +513,42 @@ a.list-row:hover, button.list-row:hover { background: var(--surface-soft); text-
   .spinner, .step[data-state="running"] .step-icon { animation: none; border-top-color: var(--accent); }
   .skeleton { animation: none; }
 }
+
+/* ---------- Floating assistant (bottom-left) ---------- */
+.chat-launcher {
+  position: fixed; left: var(--s-5); bottom: var(--s-5); z-index: 60;
+  width: 56px; height: 56px; border-radius: 50%; border: 0;
+  display: grid; place-items: center;
+  background: var(--accent); color: #fff;
+  box-shadow: 0 6px 20px -6px rgba(94, 106, 210, 0.6), 0 2px 6px rgba(43, 48, 59, 0.12);
+  transition: transform .2s var(--ease), background-color .15s;
+}
+.chat-launcher:hover { background: #5460c4; transform: translateY(-1px); }
+.chat-launcher .icon { width: 24px; height: 24px; stroke-width: 1.9; }
+.chat-launcher-close, .chat-launcher.is-open .chat-launcher-open { display: none; }
+.chat-launcher.is-open .chat-launcher-close { display: block; }
+.chat-panel {
+  position: fixed; left: var(--s-5); bottom: calc(var(--s-5) + 56px + var(--s-3)); z-index: 60;
+  width: min(420px, calc(100vw - 2 * var(--s-5))); height: min(640px, calc(100dvh - 120px));
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md);
+  box-shadow: 0 24px 60px -20px rgba(43, 48, 59, 0.35), 0 2px 8px rgba(43, 48, 59, 0.08);
+  animation: panel-in .22s var(--ease) both;
+}
+.chat-panel[hidden] { display: none; }
+.chat-panel-head {
+  display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-2) var(--s-2) var(--s-4);
+  border-bottom: 1px solid var(--hairline);
+  background: linear-gradient(90deg, rgba(94, 106, 210, 0.10), rgba(94, 106, 210, 0.02));
+}
+.chat-panel-mark { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; background: var(--accent-tint-2); color: var(--accent-ink); }
+.chat-panel-title { font-weight: 700; font-size: var(--fs-15); }
+.chat-panel-frame { flex: 1; width: 100%; border: 0; background: var(--canvas); }
+@keyframes panel-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@media (max-width: 560px) {
+  .chat-launcher { left: var(--s-4); bottom: var(--s-4); }
+  .chat-panel { left: var(--s-2); right: var(--s-2); width: auto; bottom: calc(var(--s-4) + 56px + var(--s-2)); }
+}
+
+/* The chat inside the floating panel: no top bar, full height. */
+.is-embed { --nav-h: 0px; background: var(--canvas); }

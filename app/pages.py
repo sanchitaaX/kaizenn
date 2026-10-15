@@ -1,10 +1,11 @@
 """HTML page routes.
 
-Pages: /login, /chat, /chat/{id}, /commits, /learning, /profile. Every app page needs a signed-in user
+Pages: /login, /dashboard (home), /chat, /chat/{id}, /commits, /learning, /profile. Every app page needs a signed-in user
 (auth.current_user); signed-out visitors go to /login. The pages fetch their data from the JSON API, so the
 context here is small: request, active, user, plus the analysis id for /chat/{id} and the members list for /commits.
 
-Old routes redirect: /team -> /commits, and /dashboard, /brief, /onboarding -> /chat.
+The chat also runs inside the floating chat panel on every page as /chat?embed=1 (no top bar).
+Old routes redirect: /team -> /commits, and /brief, /onboarding -> /dashboard.
 """
 
 from __future__ import annotations
@@ -51,7 +52,7 @@ def _render(request: Request, name: str, ctx: dict) -> HTMLResponse:
 def login(request: Request):
     user = current_user(request)
     if user and not request.query_params.get("error"):
-        return RedirectResponse("/chat", status_code=303)
+        return RedirectResponse("/dashboard", status_code=303)
     ctx = {
         "request": request,
         "active": "login",
@@ -74,13 +75,26 @@ def login(request: Request):
 # --------------------------------------------------------------------------- app pages
 
 
+@router.get("/dashboard", response_class=HTMLResponse)
+def dashboard(request: Request):
+    user = _gate(request)
+    if isinstance(user, RedirectResponse):
+        return user
+    return _render(request, "dashboard.html", {"request": request, "active": "dashboard", "user": user,
+                                               "github_connected": bool(user_token(user)) and not user.get("is_demo")})
+
+
+def _embed(request: Request) -> bool:
+    return request.query_params.get("embed") == "1"
+
+
 @router.get("/chat", response_class=HTMLResponse)
 def chat(request: Request):
     user = _gate(request)
     if isinstance(user, RedirectResponse):
         return user
     return _render(request, "chat.html", {"request": request, "active": "chat", "user": user,
-                                          "analysis_id": None})
+                                          "analysis_id": None, "embed": _embed(request)})
 
 
 @router.get("/chat/{analysis_id}", response_class=HTMLResponse)
@@ -91,7 +105,7 @@ def chat_analysis(request: Request, analysis_id: int):
     if not db.get_analysis(analysis_id, user["login"]):
         return RedirectResponse("/chat", status_code=303)
     return _render(request, "chat.html", {"request": request, "active": "chat", "user": user,
-                                          "analysis_id": analysis_id})
+                                          "analysis_id": analysis_id, "embed": _embed(request)})
 
 
 @router.get("/commits", response_class=HTMLResponse)
@@ -129,11 +143,10 @@ def old_team():
     return RedirectResponse("/commits", status_code=303)
 
 
-@router.get("/dashboard")
 @router.get("/brief")
 @router.get("/onboarding")
-def old_to_chat():
-    return RedirectResponse("/chat", status_code=303)
+def old_to_dashboard():
+    return RedirectResponse("/dashboard", status_code=303)
 
 
 # --------------------------------------------------------------------------- assets

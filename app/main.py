@@ -3,14 +3,28 @@
 Run:  .venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
 """
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from app import api, auth, pages
+from app import agent_api, api, auth, fleet_api, pages
 from app.config import settings
 
-app = FastAPI(title="SecureFix")
+
+@asynccontextmanager
+async def lifespan(_app):
+    """Re-read code scanning after every GitHub push (only when GitHub sign-in is configured)."""
+    from app.auth import github_configured
+    from app.fleet import watch
+
+    if github_configured():
+        watch.start()
+    yield
+
+
+app = FastAPI(title="SecureFix", lifespan=lifespan)
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret,
@@ -30,4 +44,8 @@ async def revalidate_static(request, call_next):
 
 app.include_router(auth.router)
 app.include_router(api.router)
+app.include_router(fleet_api.router)
+app.include_router(fleet_api.hooks)
+app.include_router(agent_api.router)
 app.include_router(pages.router)
+

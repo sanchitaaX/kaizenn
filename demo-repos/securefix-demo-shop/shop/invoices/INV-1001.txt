@@ -1,0 +1,4 @@
+Invoice INV-1001
+Customer: alice
+Items: 2 x MUG-01
+Total: 24.00

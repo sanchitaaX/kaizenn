@@ -111,6 +111,27 @@ def list_repos(token: str, limit: int = 100) -> list[dict]:
     return [_repo(r) for r in items]
 
 
+def list_all_repos(token: str, max_repos: int = 1000) -> list[dict]:
+    """Every repository the account can see (owned, collaborator, organization member), up to max_repos."""
+    out: list[dict] = []
+    page = 1
+    while len(out) < max_repos:
+        items = _get(token, "/user/repos", {"sort": "pushed", "per_page": 100, "page": page,
+                                             "affiliation": "owner,collaborator,organization_member"})
+        if not items:
+            break
+        out.extend(_repo(r) for r in items)
+        if len(items) < 100:
+            break
+        page += 1
+    return out[:max_repos]
+
+
+def get_branch_sha(token: str, full_name: str, branch: str) -> str:
+    """Commit sha at the tip of a branch."""
+    return _get(token, f"/repos/{full_name}/git/ref/heads/{branch}")["object"]["sha"]
+
+
 def get_repo(token: str, full_name: str) -> dict:
     return _repo(_get(token, f"/repos/{full_name}"))
 
@@ -118,7 +139,8 @@ def get_repo(token: str, full_name: str) -> dict:
 def _repo(r: dict) -> dict:
     return {"full_name": r["full_name"], "default_branch": r.get("default_branch") or "main",
             "private": bool(r.get("private")), "html_url": r.get("html_url"),
-            "pushed_at": r.get("pushed_at"), "description": r.get("description") or ""}
+            "pushed_at": r.get("pushed_at"), "description": r.get("description") or "",
+            "language": r.get("language") or ""}
 
 
 def list_commits(token: str, full_name: str, branch: str | None = None, per_page: int = 30) -> list[dict]:
@@ -257,3 +279,48 @@ def list_code_scanning_alerts(token: str, full_name: str, ref: str | None = None
             "created_at": a.get("created_at"),
         })
     return out
+
+
+MAX_TARBALL = 100 * 1024 * 1024
+
+
+def download_tree(token: str, full_name: str, ref: str, dest) -> "Path":
+    """Download a repository at a ref and unpack it into dest. Returns the folder holding the files."""
+    import tarfile
+    from pathlib import Path
+
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    archive = dest.parent / "repo.tar.gz"
+    try:
+        with _client(token) as c:
+            with c.stream("GET", f"/repos/{full_name}/tarball/{ref}", follow_redirects=True,
+                          timeout=httpx.Timeout(120.0, connect=10.0)) as r:
+                _check(r)
+                size = 0
+                with open(archive, "wb") as f:
+                    for chunk in r.iter_bytes():
+                        size += len(chunk)
+                        if size > MAX_TARBALL:
+                            raise GitHubError("The repository is too large to test here (over 100 MB).", 413)
+                        f.write(chunk)
+    except httpx.HTTPError as exc:
+        raise GitHubError("Could not download the repository from GitHub.") from exc
+    with tarfile.open(archive) as tar:
+        tar.extractall(dest, filter="data")  # "data" refuses links and paths outside dest
+    archive.unlink(missing_ok=True)
+    tops = [p for p in dest.iterdir() if p.is_dir()]
+    return tops[0] if len(tops) == 1 else dest
+
+
+def put_file(token: str, full_name: str, path: str, content: str, branch: str, message: str,
+             blob_sha: str | None = None) -> dict:
+    """Create a file on a branch, or update it when blob_sha is given. Returns {sha, url} of the commit."""
+    import base64
+
+    body = {"message": message, "content": base64.b64encode(content.encode("utf-8")).decode("ascii"), "branch": branch}
+    if blob_sha:
+        body["sha"] = blob_sha
+    data = _send(token, "PUT", f"/repos/{full_name}/contents/{path}", body)
+    commit = data.get("commit") or {}
+    return {"sha": commit.get("sha", ""), "url": commit.get("html_url", "")}

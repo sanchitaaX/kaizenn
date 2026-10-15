@@ -33,15 +33,17 @@ def is_configured() -> bool:
 
 
 def _post(messages: list[dict], *, json_mode: bool, timeout: float, model: str | None = None,
-          effort: str | None = None) -> str:
+          effort: str | None = None, max_tokens: int | None = None) -> str:
     if not is_configured():
         raise LLMError("OPENAI_API_KEY is not set. Add it to .env or use replay mode.", code="no_key")
 
     body = {"model": model or settings.llm_model, "messages": messages}
     if json_mode:
         body["response_format"] = {"type": "json_object"}
-    if effort and "gpt-oss" in body["model"]:
+    if effort and ("gpt-oss" in body["model"] or "gemini" in body["model"]):
         body["reasoning_effort"] = effort
+    if max_tokens:
+        body["max_completion_tokens"] = max_tokens
 
     try:
         res = httpx.post(
@@ -56,11 +58,14 @@ def _post(messages: list[dict], *, json_mode: bool, timeout: float, model: str |
     if res.status_code != 200:
         code = None
         try:
-            err = res.json().get("error") or {}
-            code = err.get("code") or err.get("type")
+            data = res.json()
+            if isinstance(data, list):  # Gemini wraps errors in a list
+                data = data[0] if data and isinstance(data[0], dict) else {}
+            err = data.get("error") or {}
+            code = (err.get("code") or err.get("type") or err.get("status")) if isinstance(err, dict) else None
         except ValueError:
             pass
-        raise LLMError(f"OpenAI returned {res.status_code}: {res.text[:300]}", status_code=res.status_code, code=code)
+        raise LLMError(f"The model returned {res.status_code}: {res.text[:600]}", status_code=res.status_code, code=code)
 
     try:
         return res.json()["choices"][0]["message"]["content"] or ""
@@ -69,10 +74,10 @@ def _post(messages: list[dict], *, json_mode: bool, timeout: float, model: str |
 
 
 def chat(system: str, user: str, *, json_mode: bool = False, timeout: float = 90.0, model: str | None = None,
-         effort: str | None = None) -> str:
+         effort: str | None = None, max_tokens: int | None = None) -> str:
     """Send one system + user message and return the assistant's text."""
     return _post([{"role": "system", "content": system}, {"role": "user", "content": user}],
-                 json_mode=json_mode, timeout=timeout, model=model, effort=effort)
+                 json_mode=json_mode, timeout=timeout, model=model, effort=effort, max_tokens=max_tokens)
 
 
 def chat_messages(system: str, messages: list[dict], *, timeout: float = 40.0) -> str:

@@ -1,5 +1,11 @@
 // Chat: pick a repository, pick a commit, optionally add a brief, then watch the check and talk about the result.
-// Everything is a message in one thread. No numbers, scores or charts are ever shown.
+// Or check many repositories at once: tick several (or Select all) in the repository menu, or type any public
+// repository as owner/name or a GitHub link. That check reads GitHub code scanning (POST /api/fleet/check) and
+// answers with one card per repository, riskiest first.
+// Picking (or typing) one repository runs the security repair agent (POST /api/agent/runs): it finds a real bug,
+// writes a minimal patch, proves it with an exploit test and the repository's own tests, and returns a verdict
+// with downloadable evidence. /chat?run=<id> reopens a run.
+// Everything is a message in one thread.
 
 (function () {
   "use strict";
@@ -51,6 +57,7 @@
     historyLoaded: false,
     historyFailed: false,
     repos: null,       // every repository the user can pick (loaded once)
+    multi: new Set(),  // repositories ticked in the menu for a multi-repository check
   };
   let composerMode = "off"; // off | brief | ask
 
@@ -239,7 +246,7 @@
 
   function setComposer(mode, placeholder) {
     composerMode = mode;
-    const on = mode === "brief" || mode === "ask";
+    const on = mode === "brief" || mode === "ask" || mode === "repo";
     input.disabled = !on;
     input.maxLength = mode === "ask" ? 2000 : BRIEF_LIMIT;  // the server accepts 2,000 characters per question
     input.placeholder = placeholder || "";
@@ -250,7 +257,8 @@
 
   function updateSend() {
     const hasText = input.value.trim().length > 0;
-    sendBtn.disabled = !(composerMode === "ask" ? hasText : composerMode === "brief" ? hasText || !!S.file : false);
+    sendBtn.disabled = !(composerMode === "ask" || composerMode === "repo" ? hasText
+      : composerMode === "brief" ? hasText || !!S.file : false);
   }
 
   function clearInput() {
@@ -269,7 +277,27 @@
       if (!text) return;
       clearInput();
       askFollowUp(text);
+    } else if (composerMode === "repo") {
+      const names = parseRepos(text);
+      if (!names.length) {
+        SF.toast("Type a repository as owner/name or paste its GitHub link.");
+        return;
+      }
+      clearInput();
+      checkRepos(names);
     }
+  }
+
+  // "octocat/hello-world, https://github.com/a/b" -> ["octocat/hello-world", "a/b"]
+  function parseRepos(text) {
+    const out = [];
+    String(text || "").split(/[\s,;]+/).forEach((raw) => {
+      const t = raw.replace(/^https?:\/\//i, "").replace(/^(www\.)?github\.com\//i, "").replace(/\.git$/i, "")
+        .replace(/\/+$/, "");
+      const m = t.match(/^([A-Za-z0-9_.-]{1,100})\/([A-Za-z0-9_.-]{1,100})(\/.*)?$/);
+      if (m) out.push(m[1] + "/" + m[2]);
+    });
+    return [...new Set(out)];
   }
 
   form.addEventListener("submit", (e) => { e.preventDefault(); submitComposer(); });
@@ -365,7 +393,8 @@
     renderHistory();
     S.phase = "repo";
     setRepoChip(null);
-    setComposer("off", "Pick a repository to begin");
+    S.multi = new Set();
+    setComposer("repo", "Pick repositories below, or type any public one: owner/name or a GitHub link");
     showWelcome(S.run);
   }
 
@@ -399,7 +428,7 @@
   async function showWelcome(run) {
     const wrap = h("section", "welcome", [
       h("h1", "welcome-title", "What should I check today" + (FIRST_NAME ? ", " + FIRST_NAME : "") + "?"),
-      p("Pick a repository. I will find the risky change, try to break it, fix it and prove the fix works.", "welcome-sub"),
+      p("Pick a repository to check one commit, tick several (or all) to check them together, or type any public repository below.", "welcome-sub"),
     ]);
     const grid = h("div", "repo-grid", [skeleton()]);
     wrap.append(grid);
@@ -442,8 +471,13 @@
     repoChip.classList.toggle("is-set", !!repo);
   }
 
-  // Picking a repository from the welcome cards, the dropdown or the composer chip.
+  // Picking a repository from the welcome cards, the dropdown or the composer chip runs the agent.
   function chooseRepo(repo) {
+    startAgent(repo.full_name, () => chooseCommit(repo));
+  }
+
+  // The older single-commit check (also the fallback for accounts without GitHub).
+  function chooseCommit(repo) {
     closeRepoMenu(true);
     if (S.phase !== "repo") {
       resetThread();
@@ -488,7 +522,28 @@
     list.setAttribute("role", "listbox");
     list.id = "repo-menu-list";
     search.setAttribute("aria-controls", list.id);
-    menu = h("div", "repo-menu", [h("div", "repo-menu-head", [svg("search", 14), search]), list]);
+    const allBox = h("input");
+    allBox.type = "checkbox";
+    const allRow = h("label", "repo-select-all", [allBox, h("span", null, "Select all")]);
+    const checkBtn = button("Check selected", "btn btn-primary btn-sm repo-check-btn", () => {
+      const names = [...S.multi];
+      if (names.length) checkRepos(names);
+    });
+    const foot = h("div", "repo-menu-foot", [h("span", "repo-menu-count"), checkBtn]);
+    const syncFoot = () => {
+      const n = S.multi.size;
+      foot.hidden = n === 0;
+      foot.firstChild.textContent = n === 1 ? "1 repository selected" : n + " repositories selected";
+      checkBtn.lastChild.textContent = n === 1 ? "Check 1 repository" : "Check " + n + " repositories";
+      allBox.checked = repos.length > 0 && repos.every((r) => S.multi.has(r.full_name));
+      allBox.indeterminate = n > 0 && !allBox.checked;
+    };
+    allBox.addEventListener("change", () => {
+      if (allBox.checked) repos.forEach((r) => S.multi.add(r.full_name));
+      else S.multi.clear();
+      render();
+    });
+    menu = h("div", "repo-menu", [h("div", "repo-menu-head", [svg("search", 14), search]), allRow, list, foot]);
     document.body.append(menu);
     position(menu, anchor);
 
@@ -501,12 +556,31 @@
     const render = () => {
       const shown = matching();
       list.replaceChildren();
-      if (!shown.length) list.append(h("p", "repo-menu-empty", "No repository matches that."));
+      const typed = parseRepos(search.value)[0];
+      if (typed && !repos.some((r) => r.full_name.toLowerCase() === typed.toLowerCase())) {
+        const pub = h("div", "repo-option repo-option-public", [svg("search", 14),
+          h("span", "repo-option-name", "Check " + typed), h("span", "repo-option-branch", "public")]);
+        pub.setAttribute("role", "option");
+        pub.addEventListener("mousedown", (e) => e.preventDefault());
+        pub.addEventListener("click", () => checkRepos([typed]));
+        list.append(pub);
+      } else if (!shown.length) {
+        list.append(h("p", "repo-menu-empty", "No repository matches that. Type owner/name to check a public one."));
+      }
       active = Math.min(active, Math.max(0, shown.length - 1));
       shown.forEach((r, i) => {
         const current = S.repo && S.repo.full_name === r.full_name;
+        const tick = h("input", "repo-tick");
+        tick.type = "checkbox";
+        tick.checked = S.multi.has(r.full_name);
+        tick.setAttribute("aria-label", "Select " + r.full_name);
+        tick.addEventListener("click", (e) => e.stopPropagation());
+        tick.addEventListener("change", () => {
+          if (tick.checked) S.multi.add(r.full_name); else S.multi.delete(r.full_name);
+          syncFoot();
+        });
         const opt = h("div", "repo-option" + (i === active ? " is-active" : "") + (current ? " is-current" : ""), [
-          svg("repo", 14),
+          tick,
           h("span", "repo-option-name", r.full_name),
           current ? svg("check", 14) : h("span", "repo-option-branch", r.default_branch || "main"),
         ]);
@@ -519,17 +593,25 @@
       });
       if (shown.length) search.setAttribute("aria-activedescendant", "repo-opt-" + active);
       else search.removeAttribute("aria-activedescendant");
+      syncFoot();
     };
     search.addEventListener("input", () => { active = 0; render(); });
     search.addEventListener("keydown", (e) => {
       const shown = matching();
       if (e.key === "ArrowDown") { e.preventDefault(); active = Math.min(active + 1, shown.length - 1); render(); }
       else if (e.key === "ArrowUp") { e.preventDefault(); active = Math.max(active - 1, 0); render(); }
-      else if (e.key === "Enter") { e.preventDefault(); if (shown[active]) chooseRepo(shown[active]); return; }
+      else if (e.key === "Enter") {
+        e.preventDefault();
+        const typed = parseRepos(search.value)[0];
+        if (!shown.length && typed) checkRepos([typed]);
+        else if (shown[active]) chooseRepo(shown[active]);
+        return;
+      }
       else if (e.key === "Escape") { e.preventDefault(); closeRepoMenu(); return; }
       list.querySelector(".is-active")?.scrollIntoView({ block: "nearest" });
     });
     list.append(skeleton());
+    foot.hidden = true;
     search.focus({ preventScroll: true });
     try {
       repos = await getRepos();
@@ -537,6 +619,119 @@
     } catch (err) {
       if (menu) list.replaceChildren(h("p", "repo-menu-empty", calm(err, "I could not load your repositories.")));
     }
+  }
+
+  // ---------------------------------------------------------------- checking many repositories at once
+
+  async function checkRepos(names) {
+    if (names.length === 1) { startAgent(names[0], () => checkManyRepos(names)); return; }
+    checkManyRepos(names);
+  }
+
+  async function checkManyRepos(names) {
+    closeRepoMenu(true);
+    resetThread();
+    if (location.pathname !== "/chat") history.pushState({}, "", "/chat");
+    renderHistory();
+    S.phase = "running";
+    const run = S.run;
+    setRepoChip(names.length === 1 ? { full_name: names[0] } : null);
+    if (names.length > 1) repoChipLabel.textContent = names.length + " repositories";
+    setComposer("off", "Checking...");
+    userMsg(names.length === 1 ? "Check " + names[0] : "Check " + names.length + " repositories");
+    const status = p("Reading GitHub code scanning...", "check-progress");
+    const bar = h("span", "check-bar", h("span", "check-bar-fill"));
+    assistant([status, bar]);
+    scrollEnd();
+    let job;
+    try {
+      job = await SF.api("/api/fleet/check", { method: "POST", body: { repos: names } });
+    } catch (err) {
+      if (run !== S.run) return;
+      status.textContent = calm(err, "I could not start that check.");
+      bar.remove();
+      afterCheck();
+      return;
+    }
+    const tick = async () => {
+      if (run !== S.run) return;
+      try {
+        job = await SF.api("/api/fleet/check/" + job.id);
+      } catch (err) {
+        status.textContent = calm(err, "I lost track of that check. Try again.");
+        bar.remove();
+        afterCheck();
+        return;
+      }
+      if (run !== S.run) return;
+      status.textContent = job.total > 1
+        ? "Reading GitHub code scanning: " + job.done + " of " + job.total + " repositories"
+        : "Reading GitHub code scanning...";
+      bar.firstChild.style.width = Math.max(4, Math.round(100 * job.done / Math.max(1, job.total))) + "%";
+      if (job.status !== "done") { S.pollTimer = setTimeout(tick, 900); return; }
+      bar.closest(".msg").remove();
+      showCheckResults(job.results);
+      afterCheck();
+    };
+    tick();
+  }
+
+  function afterCheck() {
+    S.phase = "repo";
+    S.multi = new Set();
+    setComposer("repo", "Type another repository (owner/name), or pick from the list");
+    setQuick([{ label: "Check more repositories", primary: true, onClick: () => openRepoMenu(repoChip) },
+      { label: "Start over", onClick: () => startNew(true) }]);
+  }
+
+  const BAND_NAMES = { critical: "Critical", high: "High", medium: "Medium", low: "Low", clean: "Clean" };
+
+  function showCheckResults(results) {
+    const scanned = results.filter((r) => r.status === "scanned");
+    const risky = scanned.filter((r) => r.band === "critical" || r.band === "high");
+    const lead = !scanned.length
+      ? "I could not read code scanning results for " + (results.length === 1 ? "that repository." : "any of those repositories.")
+      : risky.length
+        ? risky.length + " of " + scanned.length + " need action now. Riskiest first:"
+        : "None of them is Critical or High right now. Here is how they stand:";
+    const cards = h("div", "check-list", results.map(checkCard));
+    assistant([p(lead), cards]);
+    scrollEnd();
+  }
+
+  function checkCard(r) {
+    const name = h("span", "check-name", r.full_name);
+    if (r.status !== "scanned") {
+      const kids = [h("div", "check-head", [h("span", "check-score is-none", "?"), h("div", "check-title", [name,
+        h("span", "check-meta", r.note || "No results.")])])];
+      if (r.status === "hidden" || r.status === "error") {
+        kids.push(h("div", "check-actions", button("Check a commit instead", "btn btn-secondary btn-sm",
+          () => chooseRepo({ full_name: r.full_name }))));
+      }
+      return h("article", "check-card is-muted", kids);
+    }
+    const counts = [r.open_critical ? r.open_critical + " critical" : null, r.open_high ? r.open_high + " high" : null,
+      r.open_total + " open"].filter(Boolean).join(" · ");
+    const head = h("div", "check-head", [
+      h("span", "check-score band-" + r.band, [h("strong", null, String(r.risk_score)), h("span", null, "risk")]),
+      h("div", "check-title", [name, h("span", "check-meta", (BAND_NAMES[r.band] || "") + " · " + counts)]),
+    ]);
+    const kids = [head];
+    if (r.top && r.top.length) {
+      kids.push(h("ul", "check-top", r.top.map((v) => h("li", null, [
+        h("span", "check-sev sev-" + v.severity, v.severity === "critical" ? "Critical" : "High"),
+        h("span", "check-vuln", v.title),
+        h("span", "check-where", v.file + ":" + v.line),
+      ]))));
+    }
+    const open = h("a", "btn btn-primary btn-sm", "Review and fix");
+    open.href = "/dashboard?repo=" + r.id;
+    open.target = "_top";
+    const report = h("a", "btn btn-secondary btn-sm", "Report");
+    report.href = "/api/fleet/repos/" + r.id + "/report.pdf";
+    report.setAttribute("download", "");
+    kids.push(h("div", "check-actions", [open, report]));
+    return h("article", "check-card", kids);
   }
 
   // Open below the anchor, or above it when there is no room (the composer chip sits at the bottom).
@@ -1242,7 +1437,213 @@
     startNew(true);
   });
 
+  // ---------------------------------------------------------------- the security repair agent
+
+  const STEP_ICON = { waiting: "", running: "", done: "check", failed: "x", skipped: "" };
+  const VERDICTS = {
+    verified: ["Verified", "The exploit is fixed and the existing tests still pass.", "is-verified"],
+    failed: ["Failed", "The patch did not pass verification, so it was not accepted.", "is-failed"],
+    inconclusive: ["Inconclusive", "Some evidence could not be collected; read why below.", "is-inconclusive"],
+    none_found: ["No vulnerability found", "Nothing exploitable was confirmed in this repository.", "is-none"],
+  };
+
+  async function startAgent(repoName, fallback) {
+    closeRepoMenu(true);
+    resetThread();
+    renderHistory();
+    S.phase = "running";
+    const run = S.run;
+    setRepoChip({ full_name: repoName });
+    setComposer("off", "The agent is working...");
+    userMsg("Find and fix vulnerabilities in " + repoName);
+    let res;
+    try {
+      res = await SF.api("/api/agent/runs", { method: "POST", body: { repo: repoName } });
+    } catch (err) {
+      if (run !== S.run) return;
+      if (fallback && /Sign in with GitHub/i.test(err.message || "")) {
+        assistant([p("The security agent needs a GitHub sign-in to download repositories. Running the quick check instead.")]);
+        S.phase = "repo";
+        fallback();
+        return;
+      }
+      assistant([p(calm(err, "I could not start the agent."))]);
+      afterAgent();
+      return;
+    }
+    history.pushState({}, "", "/chat?run=" + res.id);
+    showRun(res.id, run);
+  }
+
+  async function showRun(id, run) {
+    run = run || S.run;
+    S.phase = "running";
+    const head = h("div", "agent-head", [h("span", "agent-badge", "SecureFix agent"), h("span", "agent-repo", "")]);
+    const steps = h("ol", "agent-steps");
+    const msg = assistant([head, steps]);
+    scrollEnd();
+    let fails = 0;
+    const tick = async () => {
+      if (run !== S.run) return;
+      let d;
+      try { d = await SF.api("/api/agent/runs/" + id); fails = 0; }
+      catch (err) {
+        if (++fails > 4) { bodyOf(msg).append(p(calm(err, "I lost track of the agent run."))); afterAgent(); return; }
+        S.pollTimer = setTimeout(tick, 2000); return;
+      }
+      if (run !== S.run) return;
+      head.lastChild.textContent = d.repo + (d.result.workspace ? " @ " + d.result.workspace.sha.slice(0, 7) : "");
+      setRepoChip({ full_name: d.repo });
+      renderSteps(steps, d.steps);
+      if (d.status === "running") { S.pollTimer = setTimeout(tick, 1500); return; }
+      renderAgentResult(d);
+      afterAgent();
+    };
+    tick();
+  }
+
+  function renderSteps(list, steps) {
+    list.replaceChildren(...steps.map((st) => {
+      const icon = st.status === "running" ? h("span", "spinner") : STEP_ICON[st.status] ? svg(STEP_ICON[st.status], 12) : null;
+      return h("li", "agent-step is-" + st.status, [
+        h("span", "agent-step-icon", icon),
+        h("div", "agent-step-main", [
+          h("span", "agent-step-label", [st.label, st.seconds != null ? h("span", "agent-step-time", st.seconds + " s") : null]),
+          st.note ? h("span", "agent-step-note", st.note) : null,
+        ]),
+      ]);
+    }));
+  }
+
+  function kv(rows) {
+    return h("dl", "agent-kv", rows.filter(Boolean).flatMap(([k, v]) => [h("dt", null, k), h("dd", null, v)]));
+  }
+
+  function renderAgentResult(d) {
+    const r = d.result || {};
+    const kids = [];
+    if (d.status === "error") {
+      kids.push(h("div", "agent-verdict is-failed", [h("strong", null, "The run stopped"), h("span", null, r.error || "Something went wrong.")]));
+      assistant(kids);
+      scrollEnd();
+      return;
+    }
+    const fixes = r.fixes && r.fixes.length > 1 ? r.fixes : null;
+    const [label, single, cls] = VERDICTS[r.verdict] || VERDICTS.inconclusive;
+    const held = fixes ? fixes.filter((x) => x.verdict === "verified").length : 0;
+    const lead = !fixes ? single : r.verdict === "verified"
+      ? `All ${fixes.length} vulnerabilities are fixed and the existing tests still pass.`
+      : `${held} of ${fixes.length} fixes verified; read each one below.`;
+    const reasons = (r.reasons || []).length ? h("ul", "agent-reasons", r.reasons.map((x) => h("li", null, x))) : null;
+    kids.push(h("div", "agent-verdict " + cls, [h("strong", null, label), h("span", null, lead), reasons]));
+
+    if (fixes) {
+      fixes.forEach((x, i) => {
+        const [vl, , vc] = VERDICTS[x.verdict] || VERDICTS.inconclusive;
+        kids.push(h("div", "agent-fix-head", [h("span", "agent-fix-num", "Fix " + (i + 1) + " of " + fixes.length),
+          h("strong", null, x.finding.title + " in " + x.finding.file + ":" + x.finding.line),
+          h("span", "agent-fix-verdict " + vc, vl)]));
+        kids.push(...fixSections(x));
+      });
+    } else {
+      kids.push(...fixSections(r));
+    }
+    const base = r.baseline || [];
+    if (base.length) {
+      const after = r.patched || [];
+      kids.push(h("section", "agent-section", [h("h4", null, fixes ? "Existing tests (all fixes applied)" : "Existing tests"),
+        h("table", "agent-tests", [
+          h("thead", null, h("tr", null, [h("th", null, "Suite"), h("th", null, "Before the fix"), h("th", null, "After the fix")])),
+          h("tbody", null, base.map((b, i) => h("tr", null, [h("td", null, b.kind),
+            h("td", null, b.ran ? b.passed + " passed, " + b.failed + " failed" : "did not run"),
+            h("td", null, after[i] && after[i].ran ? after[i].passed + " passed, " + after[i].failed + " failed" : "-")]))),
+        ])]));
+    }
+    const patch = r.patch || {};
+    const actions = h("div", "agent-actions");
+    if (d.status === "done") {
+      const pdf = h("a", "btn btn-secondary btn-sm", "Download report");
+      pdf.href = "/api/agent/runs/" + d.id + "/report.pdf";
+      pdf.setAttribute("download", "");
+      actions.append(pdf);
+      if (r.pull_request && safeUrl(r.pull_request.url)) {
+        const a = h("a", "btn btn-primary btn-sm", ["View pull request", svg("external", 14)]);
+        a.href = r.pull_request.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+        actions.prepend(a);
+      } else if (patch.diff && (r.verdict === "verified" || r.verdict === "inconclusive")) {
+        const pr = button("Open pull request", "btn btn-primary btn-sm", async () => {
+          pr.disabled = true;
+          try {
+            const out = await SF.api("/api/agent/runs/" + d.id + "/pull-request", { method: "POST" });
+            const a = h("a", "btn btn-primary btn-sm", ["View pull request", svg("external", 14)]);
+            a.href = out.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+            pr.replaceWith(a);
+          } catch (err) { SF.toast(calm(err, "GitHub did not accept the pull request.")); pr.disabled = false; }
+        });
+        actions.prepend(pr);
+      }
+    }
+    kids.push(actions);
+    if (r.seconds != null) kids.push(p(`${r.seconds} s · ${r.commands || 0} commands · ${r.model_calls || 0} model calls · ${(r.tools || {}).model || ""}`, "agent-note"));
+    assistant(kids);
+    scrollEnd();
+  }
+
+  // What is wrong, the fix, the proof and the checks for one finding (a run's result, or one of its fixes).
+  function fixSections(r) {
+    const kids = [];
+    const f = r.finding;
+    if (f) {
+      const rc = r.root_cause || {};
+      kids.push(h("section", "agent-section", [
+        h("h4", null, "What is wrong"),
+        p(rc.plain || f.reason || ""),
+        kv([["Weakness", (f.cwe ? f.cwe + " " : "") + f.title], ["Severity", (f.severity || "").replace(/^./, (c) => c.toUpperCase())],
+          ["Where", f.file + ":" + f.line], ["Found by", f.scanner || "-"],
+          rc.flow && rc.flow.length ? ["Data flow", rc.flow.join("  →  ")] : null]),
+      ]));
+    }
+    const patch = r.patch || {};
+    if (patch.diff) {
+      kids.push(h("section", "agent-section", [h("h4", null, "The fix"), p(patch.explanation || ""),
+        changeView(patch.diff), patch.attempts > 1 ? p("Written in " + patch.attempts + " attempts.", "agent-note") : null]));
+    }
+    const sec = r.security_test;
+    if (sec && sec.code) {
+      const det = h("details", "agent-code", [h("summary", null, "Exploit test: " + (sec.path || "")), h("pre", null, sec.code)]);
+      kids.push(h("section", "agent-section", [h("h4", null, "Proof"),
+        kv([["Attack", sec.attack || "-"],
+          ["Original code", outcome(sec.before)], ["Patched code", outcome(sec.after)]]), det]));
+    }
+    if ((r.gates || []).length) {
+      kids.push(h("section", "agent-section", [h("h4", null, "Checks"), h("ul", "agent-gates", r.gates.map((g) =>
+        h("li", "is-" + g.status, [h("span", "agent-gate-mark", g.status === "pass" ? svg("check", 12) : g.status === "fail" ? svg("x", 12) : "–"),
+          h("span", "agent-gate-label", g.label || g.key), h("span", "agent-gate-detail", g.detail || "")])))]));
+    }
+    return kids;
+  }
+
+  function outcome(o) {
+    if (!o) return "not run";
+    const name = { assert_failed: "Exploit worked (test failed)", passed: "Exploit blocked (test passed)", error: "Test errored", not_run: "Not run" }[o.outcome] || o.outcome;
+    return o.detail && o.outcome !== "passed" ? name + ": " + o.detail : name;
+  }
+
+  function afterAgent() {
+    S.phase = "repo";
+    setComposer("repo", "Type another repository (owner/name or a GitHub link), or pick from the list");
+    setQuick([{ label: "Check another repository", primary: true, onClick: () => openRepoMenu(repoChip) },
+      { label: "Start over", onClick: () => startNew(true) }]);
+  }
+
   function route() {
+    const runId = parseInt(new URLSearchParams(location.search).get("run") || "", 10);
+    if (location.pathname === "/chat" && runId) {
+      resetThread();
+      renderHistory();
+      showRun(runId);
+      return;
+    }
     const m = location.pathname.match(/^\/chat\/(\d+)\/?$/);
     if (m) loadAnalysis(parseInt(m[1], 10), { push: false });
     else startNew(false);

@@ -1,0 +1,4 @@
+Invoice INV-1002
+Customer: bob
+Items: 1 x TEE-02
+Total: 18.50

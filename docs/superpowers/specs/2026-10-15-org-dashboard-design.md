@@ -29,7 +29,7 @@ Each open vulnerability has a weight by severity: critical 10, high 5, medium 2,
 The weight is multiplied by 1.3 when the repository is public and by 1.2 when the vulnerability has been open
 for more than 30 days.
 
-- Repository score = `round(100 * (1 - exp(-total / 20)))`, 0 to 100. More problems raise it, but never past 100.
+- Repository score = `round(100 * (1 - exp(-total / 35)))`, 0 to 100. More problems raise it, but never past 100.
 - Band: 80+ Critical, 50-79 High, 20-49 Medium, 1-19 Low, 0 Clean.
 - Organization score = root mean square of all repository scores. It is an average that gives risky
   repositories more weight, so a few very risky repositories cannot hide behind many clean ones.

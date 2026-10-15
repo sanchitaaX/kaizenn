@@ -6,6 +6,13 @@
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--port", "8000"],
       "port": 8000
+    },
+    {
+      "name": "securefix-demo",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--port", "8010"],
+      "port": 8010,
+      "env": {"DEMO_MODE": "1", "GITHUB_CLIENT_ID": "", "DATABASE_PATH": "demo-preview.db"}
     }
   ]
 }

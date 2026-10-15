@@ -64,3 +64,51 @@ document.addEventListener("click", (e) => {
     side.classList.remove("is-open");
   }
 });
+
+// Floating assistant: the round button in the bottom-left corner opens the chat in a panel.
+(function () {
+  const launcher = document.getElementById("chat-launcher");
+  const panel = document.getElementById("chat-panel");
+  const frame = document.getElementById("chat-frame");
+  if (!launcher || !panel || !frame) return;
+  function setOpen(open) {
+    panel.hidden = !open;
+    launcher.setAttribute("aria-expanded", String(open));
+    launcher.classList.toggle("is-open", open);
+    if (open && !frame.getAttribute("src")) frame.setAttribute("src", frame.dataset.src);
+    if (open) setTimeout(() => frame.focus(), 50);
+  }
+  launcher.addEventListener("click", () => setOpen(panel.hidden));
+  panel.addEventListener("click", (e) => { if (e.target.closest("[data-chat-close]")) { setOpen(false); launcher.focus(); } });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !panel.hidden && !document.querySelector("dialog[open]")) { setOpen(false); launcher.focus(); }
+  });
+  // Other scripts can open it: SecureFix.openChat()
+  window.SecureFix.openChat = (src) => {
+    if (src) frame.setAttribute("src", src);
+    setOpen(true);
+  };
+})();
+
+// Inside the floating panel (/chat?embed=1): keep every chat URL embedded, and open other pages in the main window.
+(function () {
+  if (!document.body.classList.contains("is-embed")) return;
+  const embedUrl = (url) => {
+    const u = new URL(url, location.href);
+    if (u.origin === location.origin && u.pathname.startsWith("/chat")) u.searchParams.set("embed", "1");
+    return u.pathname + u.search + u.hash;
+  };
+  const push = history.pushState.bind(history);
+  history.pushState = (state, title, url) => push(state, title, url == null ? url : embedUrl(url));
+  const replace = history.replaceState.bind(history);
+  history.replaceState = (state, title, url) => replace(state, title, url == null ? url : embedUrl(url));
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest("a[href]");
+    if (!a || a.target === "_blank" || a.hasAttribute("download")) return;
+    const u = new URL(a.href, location.href);
+    if (u.origin !== location.origin || u.pathname.startsWith("/api/")) return;
+    if (u.pathname.startsWith("/chat")) { a.href = embedUrl(a.href); return; }
+    e.preventDefault();
+    window.top.location.href = a.href;
+  }, true);
+})();
