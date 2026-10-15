@@ -162,3 +162,59 @@ def create_pull_request(token: str, full_name: str, head: str, base: str, title:
     except httpx.HTTPError as exc:
         raise GitHubError("Could not reach GitHub.") from exc
     return {"number": pr["number"], "url": pr["html_url"], "status": pr.get("state", "open")}
+
+
+# --------------------------------------------------------------------------- files, branches, commits
+
+
+def _send(token: str, method: str, path: str, json_body: dict) -> dict:
+    try:
+        with _client(token) as c:
+            return _check(c.request(method, path, json=json_body)).json()
+    except httpx.HTTPError as exc:
+        raise GitHubError("Could not reach GitHub.") from exc
+
+
+def get_file(token: str, full_name: str, path: str, ref: str) -> tuple[str, str] | None:
+    """Text content of one file at a commit, plus its blob sha. None for binary, huge or missing files."""
+    import base64
+
+    try:
+        data = _get(token, f"/repos/{full_name}/contents/{path}", {"ref": ref})
+    except GitHubError as exc:
+        if exc.status_code == 404:
+            return None
+        raise
+    if not isinstance(data, dict) or data.get("type") != "file" or data.get("encoding") != "base64":
+        return None
+    if (data.get("size") or 0) > 200_000:
+        return None
+    try:
+        text = base64.b64decode(data.get("content") or "").decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return None
+    return text, data.get("sha") or ""
+
+
+def create_branch(token: str, full_name: str, branch: str, from_sha: str) -> None:
+    """Create refs/heads/<branch> at a commit. An existing branch with that name is reused."""
+    try:
+        _send(token, "POST", f"/repos/{full_name}/git/refs", {"ref": f"refs/heads/{branch}", "sha": from_sha})
+    except GitHubError as exc:
+        if exc.status_code != 422:  # 422 = the branch already exists
+            raise
+
+
+def update_file(token: str, full_name: str, path: str, content: str, blob_sha: str, branch: str,
+                message: str) -> dict:
+    """Commit new content for one file on a branch. Returns {sha, url} of the new commit."""
+    import base64
+
+    data = _send(token, "PUT", f"/repos/{full_name}/contents/{path}", {
+        "message": message,
+        "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+        "sha": blob_sha,
+        "branch": branch,
+    })
+    commit = data.get("commit") or {}
+    return {"sha": commit.get("sha", ""), "url": commit.get("html_url", "")}

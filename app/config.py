@@ -19,7 +19,7 @@ class Settings:
     database_path: str = os.getenv("DATABASE_PATH", "securefix.db")
     # LLM provider: OpenAI (Chat Completions API).
     llm_api_key: str = os.getenv("OPENAI_API_KEY", "")
-    llm_model: str = os.getenv("OPENAI_MODEL", "gpt-4.1")
+    llm_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     llm_base_url: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     demo_mode: bool = os.getenv("DEMO_MODE", "1") == "1"
 
