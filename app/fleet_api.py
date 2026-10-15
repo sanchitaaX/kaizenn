@@ -48,17 +48,6 @@ class BriefIn(BaseModel):
     brief: str = Field("", max_length=2000)
 
 
-class FixAllIn(BaseModel):
-    """The dashboard's current view: Fix all works on the repositories it lists."""
-    source: Source = "all"
-    owners: str = Field("", max_length=4000)
-    q: str = Field("", max_length=100)
-    band: Band = ""
-    team: str = Field("", max_length=100)
-    sort: Sort = "risk"
-    min_score: int = Field(0, ge=0, le=100)
-
-
 class CheckIn(BaseModel):
     repos: list[str] = Field(..., min_length=1, max_length=check.MAX_REPOS)
 
@@ -221,54 +210,41 @@ def save_brief(repo_id: int, body: BriefIn, user: dict = Depends(require_user)):
     return {"brief": brief}
 
 
-MAX_FIX_ALL_REPOS = 50   # repositories Fix all looks at (riskiest first in the current view)
-MAX_FIX_ALL_RUNS = 5     # agent runs one Fix all may start on real repositories (each fixes up to 3 problems)
-
-
-@router.post("/fix-all")
-def fix_all(body: FixAllIn, user: dict = Depends(require_user)):
-    """Fix the repositories in the current view. Demo repositories get their prepared fixes, saved for review;
-    real repositories get one security repair agent run each, with the repository's project brief."""
+@router.post("/repos/{repo_id}/fix-all")
+def fix_repo(repo_id: int, user: dict = Depends(require_user)):
+    """Fix every open problem in one repository. A demo repository gets its prepared fixes, saved for review;
+    a GitHub repository gets one security repair agent run (it fixes up to 3 problems, with the project brief)."""
     from app.agent import controller
 
-    ws = _workspaces(user, body.source)
-    listing = store.list_repos(ws, body.q, body.band, body.team, body.sort, 1, MAX_FIX_ALL_REPOS, body.min_score,
-                               _owners(body.owners))
+    found = store.get_repo(repo_id, _workspaces(user))
+    if not found:
+        raise HTTPException(status_code=404, detail="That repository was not found.")
+    r = found["repo"]
+    if r["source"] == "demo":
+        fixed = 0
+        for v in store.open_vulns(repo_id):
+            try:
+                made = fixer.demo_fix(v)
+            except fixer.FixError:
+                continue
+            fix = store.create_fix(v["id"], user["login"], **made)
+            store.decide_fix(fix["id"], "saved", "fix_saved")
+            fixed += 1
+        message = (f"{fixed} prepared fix{'es' if fixed != 1 else ''} saved for review." if fixed else
+                   "Every problem in this repository already has a fix waiting for review." if r["open_total"] else
+                   "Nothing to fix in this repository.")
+        return {"fixed": fixed, "run": None, "message": message}
     token = user_token(user)
-    running = {r["repo"].lower() for r in controller.recent(user["login"], 50) if r["status"] == "running"}
-    fixed, runs, skipped = 0, [], []
-    targets = [r for r in listing["items"] if r["open_total"]]
-    for r in targets:
-        if r["source"] == "demo":
-            for v in store.open_vulns(r["id"]):
-                try:
-                    made = fixer.demo_fix(v)
-                except fixer.FixError:
-                    continue
-                fix = store.create_fix(v["id"], user["login"], **made)
-                store.decide_fix(fix["id"], "saved", "fix_saved")
-                fixed += 1
-        elif not token:
-            skipped.append(r["full_name"])
-        elif r["full_name"].lower() in running:
-            continue
-        elif len(runs) < MAX_FIX_ALL_RUNS:
-            runs.append({"id": controller.start(user["login"], r["full_name"], token, brief=r.get("brief") or ""),
-                         "repo": r["full_name"]})
-        else:
-            skipped.append(r["full_name"])
-    parts = []
-    if fixed:
-        parts.append(f"{fixed} prepared fixes saved for review")
-    if runs:
-        parts.append(f"the SecureFix agent is fixing {len(runs)} repositor{'y' if len(runs) == 1 else 'ies'}")
-    if skipped:
-        parts.append(f"{len(skipped)} left for the next Fix all")
-    text = "; ".join(parts)
-    message = (text[:1].upper() + text[1:] + "." if parts else
-               "Every problem listed already has a fix waiting for review." if targets else
-               "Nothing to fix in the repositories listed.")
-    return {"repos": len(targets), "fixed": fixed, "runs": runs, "skipped": skipped, "message": message}
+    if not token:
+        raise HTTPException(status_code=403, detail="Sign in with GitHub to fix this repository.")
+    if not r["open_total"]:
+        return {"fixed": 0, "run": None, "message": "Nothing to fix in this repository."}
+    busy = next((x for x in controller.recent(user["login"], 50)
+                 if x["status"] == "running" and x["repo"].lower() == r["full_name"].lower()), None)
+    if busy:
+        return {"fixed": 0, "run": busy["id"], "message": "The SecureFix agent is already fixing this repository."}
+    run_id = controller.start(user["login"], r["full_name"], token, brief=r.get("brief") or "")
+    return {"fixed": 0, "run": run_id, "message": "The SecureFix agent is fixing this repository."}
 
 
 @router.get("/repos/{repo_id}/report.pdf")

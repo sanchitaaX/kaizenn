@@ -404,7 +404,7 @@
     renderPager(data);
   }
 
-  const COLS = 10;
+  const COLS = 11;
 
   function count(n, alert) {
     return h("td", "num" + (n ? (alert ? " c-strong" : "") : " zero"), n ? fmt(n) : "0");
@@ -430,6 +430,7 @@
       h("td", "num hide-sm" + (r.open_medium ? "" : " zero"), fmt(r.open_medium)),
       h("td", "num hide-sm" + (r.open_low ? "" : " zero"), fmt(r.open_low)),
       h("td", "hide-sm muted", r.last_scan_label),
+      h("td", "fix-all-cell", r.open_total ? fixAllButton(r) : null),
       h("td", "report-cell", reportLink(r)),
     ]);
     const cell = h("td", "detail-cell");
@@ -511,6 +512,27 @@
     const open = !rows.every((t) => t.classList.contains("is-open"));
     rows.forEach((t) => t._setOpen(open));
   });
+
+  // Fix all for one repository: a demo repository gets its prepared fixes, saved for review; a GitHub repository
+  // gets a security repair agent run (it fixes up to three problems and uses the project brief).
+  function fixAllButton(r) {
+    const btn = h("button", "btn btn-primary btn-sm fix-all", [icon("spark", 14), "Fix all"]);
+    btn.type = "button";
+    btn.title = `Fix every open problem in ${r.full_name}`;
+    btn.addEventListener("keydown", (e) => e.stopPropagation());
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      btn.disabled = true;
+      try {
+        const out = await SF.api(`/api/fleet/repos/${r.id}/fix-all`, { method: "POST" });
+        SF.toast(out.message);
+        if (out.run) SF.openChat("/chat?embed=1&run=" + out.run);
+        await Promise.all([loadSummary(), loadRepos()]);
+      } catch (err) { SF.toast(err.message); }
+      finally { btn.disabled = false; }
+    });
+    return btn;
+  }
 
   function reportLink(r) {
     const a = h("a", "btn btn-ghost btn-icon btn-sm report-link", icon("download", 16));
@@ -945,23 +967,6 @@
     $("f-q").value = ""; $("f-band").value = ""; $("f-team").value = "";
     document.querySelectorAll(".band-seg").forEach((el) => el.classList.remove("is-active"));
     loadRepos();
-  });
-
-  // Fix all works on the repositories this view lists: demo ones get their prepared fixes, saved for review;
-  // GitHub ones get one security repair agent run each (it fixes up to three problems and uses the project brief).
-  $("fix-all").addEventListener("click", async () => {
-    const btn = $("fix-all");
-    if (!window.confirm("Fix the repositories listed here? Demo repositories get their prepared fixes, saved for " +
-      "review. Each of your GitHub repositories gets a SecureFix agent run (up to 5 at a time).")) return;
-    btn.disabled = true;
-    try {
-      const out = await SF.api("/api/fleet/fix-all", { method: "POST", body: { source: S.source,
-        owners: S.owners.join(","), q: S.q, band: S.band, team: S.team, sort: S.sort, min_score: S.minScore || 0 } });
-      SF.toast(out.message);
-      await Promise.all([loadSummary(), loadRepos()]);
-      if (out.runs.length) SF.openChat("/chat?embed=1&run=" + out.runs[0].id);
-    } catch (err) { SF.toast(err.message); }
-    finally { btn.disabled = false; }
   });
 
   // ------------------------------------------------------------------ owner picker

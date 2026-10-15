@@ -500,13 +500,14 @@ def test_project_brief_is_saved_and_shown(demo):
     assert demo.put(f"/api/fleet/repos/{repo['id']}/brief", json={"brief": "x" * 2001}).status_code == 422
 
 
-def test_fix_all_saves_prepared_fixes_for_the_listed_demo_repos(demo):
-    listed = demo.get("/api/fleet/repos?source=demo&min_score=100").json()["items"]
-    assert listed
-    open_before = sum(1 for v in demo.get(f"/api/fleet/repos/{listed[0]['id']}").json()["vulns"] if v["status"] == "open")
-    out = demo.post("/api/fleet/fix-all", json={"source": "demo", "min_score": 100}).json()
-    assert out["fixed"] >= open_before > 0 and out["runs"] == []
-    statuses = {v["status"] for v in demo.get(f"/api/fleet/repos/{listed[0]['id']}").json()["vulns"]}
-    assert "open" not in statuses
-    again = demo.post("/api/fleet/fix-all", json={"source": "demo", "min_score": 100}).json()
+def test_fix_all_saves_prepared_fixes_for_one_demo_repo(demo):
+    first, second = demo.get("/api/fleet/repos?source=demo&min_score=0").json()["items"][:2]
+    statuses = lambda r: [v["status"] for v in demo.get(f"/api/fleet/repos/{r['id']}").json()["vulns"]]
+    open_before, other_before = statuses(first).count("open"), statuses(second)
+    out = demo.post(f"/api/fleet/repos/{first['id']}/fix-all").json()
+    assert out["fixed"] == open_before > 0 and out["run"] is None
+    assert "open" not in statuses(first)
+    assert statuses(second) == other_before  # only that repository
+    again = demo.post(f"/api/fleet/repos/{first['id']}/fix-all").json()
     assert again["fixed"] == 0 and "already has a fix" in again["message"]
+    assert demo.post("/api/fleet/repos/999999/fix-all").status_code == 404

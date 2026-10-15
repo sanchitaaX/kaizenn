@@ -81,10 +81,6 @@
           {% if github_connected %}
           <label class="switch auto-switch"><input type="checkbox" id="auto-scan" checked><span class="switch-track"></span><span>Auto-scan on push</span></label>
           {% endif %}
-          <button class="btn btn-primary btn-sm fix-all" id="fix-all" type="button" title="Fix the repositories listed below">
-            <svg class="icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/></svg>
-            Fix all
-          </button>
         </div>
       </div>
       {% if github_connected %}<p class="watch-note" id="watch-note" hidden></p>{% endif %}
@@ -130,6 +126,7 @@
               <th scope="col" class="num hide-sm" title="Medium problems">Medium</th>
               <th scope="col" class="num hide-sm" title="Low problems">Low</th>
               <th scope="col" class="hide-sm">Last scan</th>
+              <th scope="col"><span class="sr-only">Fix all</span></th>
               <th scope="col"><span class="sr-only">Report</span></th>
             </tr>
           </thead>

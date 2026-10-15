@@ -413,14 +413,9 @@ dialog::backdrop { background: rgba(43, 48, 59, 0.38); }
 .proof-table td.is-pass { color: var(--accent-ink); font-weight: 700; }
 .proof-table td.is-fail { color: var(--ink); font-weight: 700; }
 
-/* ---------- Fix all (stays in view while the table scrolls) and project brief ---------- */
-#repos-section > .panel-head {
-  position: sticky; top: var(--nav-h); z-index: 5; margin: calc(-1 * var(--s-4)) calc(-1 * var(--s-5)) var(--s-4);
-  padding: var(--s-4) var(--s-5) var(--s-3); background: var(--surface); border-radius: var(--r-md) var(--r-md) 0 0;
-  border-bottom: 1px solid var(--hairline);
-}
+/* ---------- Fix all (one per repository row) and project brief ---------- */
+.fix-all-cell { width: 1%; white-space: nowrap; text-align: right; }
 .fix-all { gap: 6px; }
-.fix-all .icon { fill: currentColor; stroke: none; }
 .brief { display: flex; flex-direction: column; gap: var(--s-2); margin: var(--s-3) 0; padding: var(--s-3); border-radius: var(--r-md);
   border: 1px solid var(--blue-100); background: var(--soft-gradient); }
 .brief-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-2); }
