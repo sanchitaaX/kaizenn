@@ -671,3 +671,40 @@ def test_decision_needs_a_fix_and_a_valid_action(demo):
     wait_done(demo, aid)
     assert demo.post(f"/api/analyses/{aid}/decision", json={"action": "ignore"}).status_code == 409
     assert demo.post(f"/api/analyses/{aid}/decision", json={"action": "push"}).status_code == 422
+
+
+# --------------------------------------------------------------------------- technical report
+
+
+def test_report_json_uses_the_recorded_facts_when_ai_is_off(demo):
+    aid = start(demo, "e41b9d2")
+    wait_done(demo, aid)
+    demo.post(f"/api/analyses/{aid}/decision", json={"action": "commit"})
+    r = demo.get(f"/api/analyses/{aid}/report")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["ai"] is False and data["ai_note"]
+    f = data["facts"]
+    assert f["repo"] == REPO and f["commit"]["short_sha"] == "e41b9d2"
+    assert f["finding"]["cwe"] == "CWE-89" and f["finding"]["severity"] == "High"
+    assert f["fix"]["stats"]["added"] >= 1 and f["decision"]["action"] == "commit"
+    assert set(data["sections"]) >= {"executive_summary", "root_cause", "remediation", "verification",
+                                     "recommendations"}
+    # The cached report is not sent with the chat view.
+    assert "tech_report" not in (demo.get(f"/api/analyses/{aid}").json()["result"] or {})
+
+
+def test_report_pdf_downloads(demo):
+    aid = start(demo, "c7f0a13")
+    wait_done(demo, aid)
+    r = demo.get(f"/api/analyses/{aid}/report.pdf")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/pdf"
+    assert "attachment" in r.headers["content-disposition"] and r.content[:5] == b"%PDF-"
+
+
+def test_report_for_a_safe_commit_and_access_rules(demo, client):
+    aid = start(demo, "b3e7712")
+    wait_done(demo, aid)
+    assert demo.get(f"/api/analyses/{aid}/report.pdf").status_code == 200
+    assert demo.get("/api/analyses/99999/report").status_code == 404

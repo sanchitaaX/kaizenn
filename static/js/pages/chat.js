@@ -1020,11 +1020,25 @@
       }
     }
 
+    assistant([reportLink(d)]);
+
     (d.messages || []).forEach((msg) => {
       if (msg.role === "user") userMsg(msg.text);
       else assistant([p(msg.text, "msg-reply")]);
     });
     return first;
+  }
+
+  // Download the technical report (written from the recorded review) as a PDF.
+  function reportLink(d) {
+    const a = h("a", "report-link", [svg("book", 16), h("span", "report-link-text", [
+      h("span", "report-link-title", "Technical report"),
+      h("span", "report-link-sub", "Finding, attack evidence, the fix, verification and every action taken"),
+    ]), h("span", "report-link-cta", "Download PDF")]);
+    a.href = "/api/analyses/" + d.id + "/report.pdf";
+    a.setAttribute("download", "");
+    a.addEventListener("click", () => SF.toast("Preparing your report. This can take a few seconds."));
+    return a;
   }
 
   function firstSentence(text) {

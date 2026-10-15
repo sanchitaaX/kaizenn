@@ -108,6 +108,14 @@
 
     const end = el("div", "commit-end");
     end.appendChild(badge(c.state));
+    if (c.analysis_id) {
+      const r = el("a", "btn btn-ghost btn-sm", "Report");
+      r.href = "/api/analyses/" + encodeURIComponent(c.analysis_id) + "/report.pdf";
+      r.setAttribute("download", "");
+      r.title = "Download the technical report (PDF)";
+      r.addEventListener("click", () => SF.toast("Preparing the report. This can take a few seconds."));
+      end.appendChild(r);
+    }
     end.appendChild(actionFor(c));
 
     row.appendChild(main);

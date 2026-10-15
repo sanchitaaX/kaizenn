@@ -974,6 +974,17 @@ def set_analysis_pull_request(analysis_id: int, pull_request: dict) -> None:
         conn.execute("UPDATE analyses SET result = ? WHERE id = ?", (json.dumps(data), analysis_id))
 
 
+def set_analysis_field(analysis_id: int, key: str, value) -> None:
+    """Store one extra field on an analysis result (for example the cached technical report)."""
+    with tx() as conn:
+        row = conn.execute("SELECT result FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
+        if not row or not row["result"]:
+            return
+        data = json.loads(row["result"])
+        data[key] = value
+        conn.execute("UPDATE analyses SET result = ? WHERE id = ?", (json.dumps(data), analysis_id))
+
+
 def set_analysis_decision(analysis_id: int, decision: dict) -> None:
     """Remember whether the user committed or ignored the fix (stored on the result)."""
     with tx() as conn:

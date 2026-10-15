@@ -14,7 +14,7 @@ import hashlib
 from typing import Literal
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 
@@ -24,6 +24,7 @@ from app.config import settings
 from app.engine import analysis as chat
 from app.engine import brief_files, generate_rules, runner
 from app.engine.learning import learning_for
+from app.engine import report as tech_report
 
 
 def same_origin(request: Request) -> None:
@@ -570,7 +571,7 @@ def _analysis_view(a: dict) -> dict:
             result = {**result, "pull_request": report["pull_request"]}
     return {
         "id": a["id"], "repo": a["repo"], "commit": _commit_view(a["repo"], a["sha"]), "brief": a["brief"],
-        "status": a["status"], "steps": a["steps"], "result": result, "error": a["error"],
+        "status": a["status"], "steps": a["steps"], "result": ({k: v for k, v in result.items() if k != "tech_report"} if result else result), "error": a["error"],
         "messages": db.list_messages(a["id"]),
     }
 
@@ -656,6 +657,30 @@ def analysis_pull_request(analysis_id: int, user: dict = Depends(require_user)):
     pr = _open_pr(user, a["repo"], commit)
     db.set_analysis_pull_request(analysis_id, pr)
     return pr
+
+
+@router.get("/analyses/{analysis_id}/report")
+def analysis_report(analysis_id: int, refresh: bool = False, user: dict = Depends(require_user)):
+    """The technical report as JSON (sections written by the AI from the recorded facts, or the fallback)."""
+    a = _analysis_or_404(analysis_id, user)
+    if a["status"] == "running":
+        raise HTTPException(status_code=409, detail="The check is still running. Try again when it finishes.")
+    return tech_report.build(a, user, refresh=refresh)
+
+
+@router.get("/analyses/{analysis_id}/report.pdf")
+def analysis_report_pdf(analysis_id: int, refresh: bool = False, user: dict = Depends(require_user)):
+    """Download the technical report as a PDF."""
+    from app import report_pdf  # reportlab is only needed for this route
+
+    a = _analysis_or_404(analysis_id, user)
+    if a["status"] == "running":
+        raise HTTPException(status_code=409, detail="The check is still running. Try again when it finishes.")
+    data = tech_report.build(a, user, refresh=refresh)
+    pdf = report_pdf.render(data)
+    name = f"securefix-{a['repo'].replace('/', '-')}-{a['sha'][:7]}.pdf"
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @router.post("/analyses/{analysis_id}/decision")
