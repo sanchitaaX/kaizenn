@@ -16,9 +16,11 @@ from app.config import settings
 @asynccontextmanager
 async def lifespan(_app):
     """Re-read code scanning after every GitHub push (only when GitHub sign-in is configured)."""
+    from app.agent import controller
     from app.auth import github_configured
     from app.fleet import watch
 
+    controller.close_interrupted()  # runs whose server stopped mid-way would otherwise poll forever
     if github_configured():
         watch.start()
     yield

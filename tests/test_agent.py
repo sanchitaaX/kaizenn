@@ -32,6 +32,7 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "runs_dir", str(tmp_path / "runs"))
     monkeypatch.setattr(settings, "demo_mode", True)
     monkeypatch.setattr(settings, "llm_api_key", "")
+    monkeypatch.setattr(settings, "agent_mode", "thorough")  # fast mode has its own tests below
     db.reset_cache()
     yield
     db.reset_cache()
@@ -339,6 +340,125 @@ def test_demo_shop_three_vulnerabilities_are_fixed_and_verified(tmp_path, monkey
     assert any(n.endswith("fix_3/patch.diff") for n in names)
 
 
+
+# --------------------------------------------------------------------------- fast mode
+
+
+BROKEN_TOOLS = (SHOP_FIXES["shop/tools.py"][0],
+                '''    cmd = [sys.executable, "-m", "shop.stock", sku.lower()]
+    out = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=30)''')  # breaks normal lookups
+
+
+class FastScript:
+    """Answers the fast mode's single repair call per finding. `overrides` replace parts of one file's answer."""
+
+    def __init__(self, overrides=None, not_exploitable=()):
+        self.overrides, self.not_exploitable = overrides or {}, set(not_exploitable)
+        self.calls: list[tuple[str, str]] = []
+
+    def __call__(self, stage, task, prompt, log, **kw):
+        log.add(stage=stage, model=kw.get("model") or "scripted", attempt=1, prompt_chars=len(prompt), seconds=0.0, ok=True)
+        assert stage == "repair", stage
+        file = re.search(r"(shop/\w+\.py):\d+", prompt).group(1)
+        self.calls.append((file, kw.get("model")))
+        if file in self.not_exploitable:
+            return {"exploitable": False, "plain": "the value never comes from a user"}
+        find, replace, test = SHOP_FIXES[file]
+        o = self.overrides.get(file, {})
+        if callable(o):
+            o = o(len([c for c in self.calls if c[0] == file]))
+        return {"exploitable": True, "function": "", "plain": f"Untrusted input reaches a sink in {file}.",
+                "technical": "input is used unchecked", "flow": ["input", "sink"], "exploit_input": "-",
+                "fix_strategy": "validate", "must_keep": "normal use",
+                "test": {"filename": "test_securefix_exploit.py", "code": o.get("test", test), "explanation": "-"},
+                "edits": [{"file": file, "find": o.get("find", find), "replace": o.get("replace", replace)}],
+                "explanation": "fixed", "behaviour_change": "none"}
+
+
+def fast_run(monkeypatch, script) -> dict:
+    monkeypatch.setattr(settings, "agent_mode", "fast")
+    monkeypatch.setattr(settings, "llm_fallback_models", "second-model")
+    return run_local(monkeypatch, DEMO_SHOP, script)
+
+
+def test_fast_mode_fixes_the_demo_shop_with_one_call_per_finding(monkeypatch):
+    script = FastScript()
+    run = fast_run(monkeypatch, script)
+    res = run["result"]
+    assert run["verdict"] == "verified", (res.get("reasons"), res.get("error"))
+    assert sorted(f for f, _ in script.calls) == ["shop/db.py", "shop/files.py", "shop/tools.py"]  # 3 calls in all
+    assert {m for _, m in script.calls} == {settings.llm_model, "second-model"}  # spread over both models
+    assert len(res["fixes"]) == 3 and all(x["verdict"] == "verified" for x in res["fixes"])
+    assert all(x["security_test"]["before"]["outcome"] == "assert_failed" for x in res["fixes"])
+    assert all(x["security_test"]["after"]["outcome"] == "passed" for x in res["fixes"])
+    assert res["baseline"][0]["passed"] == 10 and res["patched"][0]["passed"] == 10
+    assert set(res["files"]) == {"shop/db.py", "shop/files.py", "shop/tools.py"}
+    assert len({t["path"] for t in res["security_tests"]}) == 3
+    assert [s["status"] for s in run["state"]["steps"]] == ["done"] * 8
+    assert res["seconds"] < 20
+
+
+def test_fast_mode_keeps_good_fixes_when_one_patch_breaks_the_tests(monkeypatch):
+    run = fast_run(monkeypatch, FastScript({"shop/tools.py": {"replace": BROKEN_TOOLS[1]}}))
+    res = run["result"]
+    verdicts = {x["finding"]["file"]: x["verdict"] for x in res["fixes"]}
+    assert verdicts == {"shop/db.py": "verified", "shop/files.py": "verified", "shop/tools.py": "failed"}
+    assert run["verdict"] == "inconclusive"
+    assert set(res["files"]) == {"shop/db.py", "shop/files.py"}  # the broken patch is not kept
+    assert res["patched"][0]["failed"] == 0 and res["patched"][0]["passed"] == 10  # the final tree was re-checked
+
+
+def test_fast_mode_rewrites_a_test_that_passed_on_vulnerable_code(monkeypatch):
+    useless = {"test": USELESS_PY}
+    script = FastScript({"shop/db.py": lambda n: useless if n == 1 else {}})
+    run = fast_run(monkeypatch, script)
+    fix = next(x for x in run["result"]["fixes"] if x["finding"]["file"] == "shop/db.py")
+    assert fix["verdict"] == "verified" and fix["patch"]["attempts"] == 2
+    assert [f for f, _ in script.calls].count("shop/db.py") == 2 and len(script.calls) == 4
+
+
+LITTERING_TEST = "import os\n" + SHOP_FIXES["shop/files.py"][2] + '''
+
+def test_normal_invoice_still_reads():
+    from shop.files import INVOICE_DIR
+    with open(os.path.join(INVOICE_DIR, "test.txt"), "w") as fh:  # a leftover inside the repository
+        fh.write("x")
+'''
+
+
+def test_fast_mode_removes_files_an_exploit_test_leaves_behind(monkeypatch):
+    run = fast_run(monkeypatch, FastScript({"shop/files.py": {"test": LITTERING_TEST}}))
+    res = run["result"]
+    assert run["verdict"] == "verified", res.get("reasons")
+    assert res["patched"][0]["passed"] == 10  # test_lists_invoices did not see the leftover file
+
+def test_fast_mode_accepts_edits_copied_with_line_numbers(monkeypatch):
+    find = "\n".join(f"{23 + i:5d}  {line}" for i, line in enumerate(SHOP_FIXES["shop/db.py"][0].splitlines()))
+    script = FastScript({"shop/db.py": {"find": find}})
+    run = fast_run(monkeypatch, script)
+    assert run["verdict"] == "verified" and len(script.calls) == 3
+
+
+def test_fast_mode_repairs_code_sent_with_escaped_line_breaks(monkeypatch):
+    escaped = SHOP_FIXES["shop/tools.py"][2].replace("\n", "\\n").replace('"', '\\"')
+    script = FastScript({"shop/tools.py": {"test": escaped}})
+    run = fast_run(monkeypatch, script)
+    assert run["verdict"] == "verified" and len(script.calls) == 3
+
+
+def test_fast_mode_retries_a_patch_that_does_not_match(monkeypatch):
+    script = FastScript({"shop/db.py": lambda n: {"find": "    sql = f'not in the file'"} if n == 1 else {}})
+    run = fast_run(monkeypatch, script)
+    fix = next(x for x in run["result"]["fixes"] if x["finding"]["file"] == "shop/db.py")
+    assert fix["verdict"] == "verified" and fix["patch"]["attempts"] == 2
+    assert [f for f, _ in script.calls].count("shop/db.py") == 2
+
+
+def test_fast_mode_skips_findings_the_model_rejects(monkeypatch):
+    run = fast_run(monkeypatch, FastScript(not_exploitable={"shop/files.py"}))
+    assert run["verdict"] == "verified"
+    assert sorted(x["finding"]["file"] for x in run["result"]["fixes"]) == ["shop/db.py", "shop/tools.py"]
+
 @needs_node
 def test_javascript_repository_is_verified_with_node_test(tmp_path, monkeypatch):
     review = [{"file": "docs.js", "line": 7, "type": "PATH_TRAVERSAL", "cwe": "CWE-22", "severity": "high",
@@ -367,6 +487,18 @@ def test_edits_must_match_exactly_once(tmp_path):
         ws.cleanup()
 
 
+def test_an_edit_retyped_slightly_differently_still_applies_but_a_wrong_one_does_not(tmp_path):
+    ws = workspace.from_folder(DEMO_SHOP)
+    try:
+        retyped = '    cmd = f"\\"{sys.executable}\\" -m shop.stock {sku}"'  # other quotes than the file uses
+        assert patcher.apply(ws, [{"file": "shop/tools.py", "find": retyped, "replace": "    cmd = None"}]) == []
+        assert "    cmd = None" in ws.read("shop/tools.py")
+        ws.revert()
+        assert patcher.apply(ws, [{"file": "shop/tools.py", "find": "    totally = different()", "replace": "x"}])
+    finally:
+        ws.cleanup()
+
+
 def test_new_failures_are_told_apart_from_old_ones():
     before = [testrun.SuiteResult("pytest", True, {"a": "passed", "b": "failed", "c": "passed"}, 2, 1)]
     after = [testrun.SuiteResult("pytest", True, {"a": "passed", "b": "failed", "c": "failed"}, 1, 2)]
@@ -386,3 +518,10 @@ def test_secrets_never_reach_repository_commands(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_nope")
     env = clean_env()
     assert "OPENAI_API_KEY" not in env and "GITHUB_TOKEN" not in env and "PATH" in {k.upper() for k in env}
+
+
+def test_runs_cut_off_by_a_restart_are_closed_at_startup():
+    run_id = controller.create("dev", "fixture/repo", None, None)
+    controller.close_interrupted()
+    run = controller.get(run_id)
+    assert run["status"] == "error" and "restarted" in run["state"]["result"]["error"]

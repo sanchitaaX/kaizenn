@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from app import db
-from app.agent import analyze, discover, evidence, model, patcher, rules, sectest, testrun, verify, workspace
+from app.agent import analyze, discover, evidence, fast, model, patcher, rules, sectest, testrun, verify, workspace
 from app.agent.sandbox import Recorder, version
 from app.config import settings
 from app.fleet import learn
@@ -59,6 +59,7 @@ CREATE INDEX IF NOT EXISTS agent_runs_by_user ON agent_runs (login, id DESC);
 _ready: set[str] = set()
 _lock = threading.Lock()
 _slots = threading.Semaphore(MAX_PARALLEL)
+_BG = ThreadPoolExecutor(max_workers=4, thread_name_prefix="agent-baseline")
 
 
 # --------------------------------------------------------------------------- storage
@@ -103,6 +104,25 @@ def recent(login: str, limit: int = 20) -> list[dict]:
     return [dict(r) | {"created_label": db.humanize(r["created_at"])} for r in rows]
 
 
+INTERRUPTED = "SecureFix restarted while this run was going, so it stopped. Start it again."
+
+
+def close_interrupted() -> int:
+    """At startup: a run still marked running lost its thread when the server stopped. Close it with a reason,
+    so the chat shows it as stopped instead of waiting forever. Returns how many were closed."""
+    with _tx() as conn:
+        rows = conn.execute("SELECT id, state FROM agent_runs WHERE status = 'running'").fetchall()
+    for r in rows:
+        state = json.loads(r["state"])
+        for s in state["steps"]:
+            s.pop("t0", None)
+            if s["status"] == "running":
+                s["status"], s["note"] = "failed", INTERRUPTED
+        state.setdefault("result", {})["error"] = INTERRUPTED
+        _save(r["id"], state, "error", None)
+    return len(rows)
+
+
 def _save(run_id: int, state: dict, status: str | None = None, verdict: str | None = None) -> None:
     with _tx() as conn:
         if status and status != "running":
@@ -123,15 +143,21 @@ class Run:
         self.calls = model.CallLog(notify=self.waiting)
         self.started = time.monotonic()
         self.result: dict = self.state["result"]
+        self.lock = threading.RLock()  # the baseline thread and model calls update the timeline too
 
     def waiting(self, text: str) -> None:
         """Model rate-limit waits appear on whichever step is running."""
-        for s in self.state["steps"]:
-            if s["status"] == "running":
-                s["note"] = text
-        _save(self.id, self.state)
+        with self.lock:
+            for s in self.state["steps"]:
+                if s["status"] == "running":
+                    s["note"] = text
+            _save(self.id, self.state)
 
     def step(self, key: str, status: str, note: str = "") -> None:
+        with self.lock:
+            self._step(key, status, note)
+
+    def _step(self, key: str, status: str, note: str = "") -> None:
         for s in self.state["steps"]:
             if s["key"] == key:
                 if status == "running" and s["status"] != "running":
@@ -144,7 +170,8 @@ class Run:
         _save(self.id, self.state)
 
     def save(self) -> None:
-        _save(self.id, self.state)
+        with self.lock:
+            _save(self.id, self.state)
 
     def out_of_time(self) -> bool:
         return time.monotonic() - self.started > RUN_BUDGET
@@ -164,7 +191,7 @@ def execute(run_id: int, token: str | None, target: dict | None = None, local: P
     row = get(run_id)
     res = run.result
     res.update(repo=row["repo"], started_at=row["created_at"], tools=_tools(), attempts=[])
-    ws = None
+    ws, base_job = None, None
     final_status, final_verdict = "done", None
     try:
         # 1. Intake ---------------------------------------------------------------------------
@@ -178,20 +205,11 @@ def execute(run_id: int, token: str | None, target: dict | None = None, local: P
         run.step("intake", "done", f"{ws.repo} @ {ws.sha[:7]} · {len(ws.files())} source files · "
                                    + ", ".join(f"{k} {v}" for k, v in langs.items()) if langs else "no source files")
 
-        # 2. Baseline -------------------------------------------------------------------------
-        run.step("baseline", "running", "Installing dependencies")
-        suites = testrun.detect(ws)
-        for s in suites:
-            testrun.setup(ws, s, run.rec)
-        run.step("baseline", "running", "Running the existing tests on the original code")
-        before = [testrun.run_suite(ws, s, run.rec, "baseline") for s in suites]
-        res["suites"] = [{"kind": s.kind, "framework": s.framework, "setup": s.setup_note, "setup_ok": s.setup_ok} for s in suites]
-        res["baseline"] = [b.as_dict() for b in before]
-        setup_ok = all(s.setup_ok for s in suites)
-        ran = [b for b in before if b.ran and (b.passed + b.failed)]
-        run.step("baseline", "done" if ran else "skipped",
-                 "; ".join(f"{b.kind}: {b.passed} passed, {b.failed} failed" for b in ran) if ran
-                 else "No runnable test suite found (the verdict cannot be Verified)")
+        # 2. Baseline: in fast mode it runs while the model works ---------------------------------
+        fast_mode = settings.agent_mode == "fast"
+        base_job = _BG.submit(_baseline, run, ws, res)
+        if not fast_mode:
+            suites, before, setup_ok = base_job.result()
 
         # 3. Discover -------------------------------------------------------------------------
         if target:
@@ -201,8 +219,11 @@ def execute(run_id: int, token: str | None, target: dict | None = None, local: P
             run.step("discover", "running", "Scanning with SecureFix rules, Bandit, Semgrep and CodeQL")
             cands, sources = discover.gather(ws, run.rec, token)
             res["candidates"] = [{k: c[k] for k in ("id", "type", "file", "line", "scanner", "severity")} for c in cands]
-            run.step("discover", "running", f"{len(cands)} candidates ({'; '.join(sources)}); the model is triaging them")
-            findings = discover.triage(ws, cands, run.calls) if cands else []
+            if fast_mode:  # the repair call itself decides whether a candidate is real
+                findings = cands
+            else:
+                run.step("discover", "running", f"{len(cands)} candidates ({'; '.join(sources)}); the model is triaging them")
+                findings = discover.triage(ws, cands, run.calls) if cands else []
             if not findings:
                 run.step("discover", "running", "No scanner hit was exploitable; the model is reviewing the key files")
                 findings = discover.review(ws, run.calls)
@@ -215,7 +236,7 @@ def execute(run_id: int, token: str | None, target: dict | None = None, local: P
                 run.step("verdict", "done", "No exploitable vulnerability found")
                 return
             res["findings"] = findings[:5]
-            run.step("discover", "done", f"{len(findings)} confirmed · top: {findings[0]['title']} in "
+            run.step("discover", "done", f"{len(findings)} {'candidates' if fast_mode else 'confirmed'} · top: {findings[0]['title']} in "
                                          f"{findings[0]['file']}:{findings[0]['line']}")
 
         # 4. Root cause: the top findings in parallel, one per vulnerable function --------------
@@ -228,9 +249,17 @@ def execute(run_id: int, token: str | None, target: dict | None = None, local: P
                 picked.append(f)
             if len(picked) == MAX_FINDINGS_TRIED:
                 break
-        with ThreadPoolExecutor(max_workers=max(1, len(picked))) as pool:
-            causes = list(pool.map(lambda f: analyze.root_cause(ws, f, run.calls), picked))
-        targets = [(f, c) for f, c in zip(picked, causes) if c["exploitable"]][:MAX_FIXES]
+        if fast_mode:
+            run.step("analyze", "running", f"The model is reading {len(picked)} finding{'s' if len(picked) != 1 else ''} "
+                                           "in one pass (root cause, exploit test and patch together)")
+            answers = fast.ask_all(ws, picked, run.calls)
+            if all(isinstance(x, Exception) for x in answers):
+                raise answers[0]
+            targets = [(f, x) for f, x in zip(picked, answers) if isinstance(x, Exception) or x["exploitable"]]
+        else:
+            with ThreadPoolExecutor(max_workers=max(1, len(picked))) as pool:
+                causes = list(pool.map(lambda f: analyze.root_cause(ws, f, run.calls), picked))
+            targets = [(f, c) for f, c in zip(picked, causes) if c["exploitable"]][:MAX_FIXES]
         if not targets:
             run.step("analyze", "done", "On closer reading none of the findings is exploitable")
             for k in ("sectest", "patch", "verify"):
@@ -242,14 +271,19 @@ def execute(run_id: int, token: str | None, target: dict | None = None, local: P
         multi = len(targets) > 1
         run.step("analyze", "done", (f"{len(targets)} exploitable: " + "; ".join(
             f"{f['title']} in {f['file']}:{f['line']}" for f, _ in targets)) if multi
-            else targets[0][1]["plain"][:220] or "Root cause traced")
+            else _plain(targets[0][1])[:220] or "Root cause traced")
+        if fast_mode:
+            suites, before, setup_ok = base_job.result()
         python = next((s.python for s in suites if s.kind == "pytest"), None) or sys.executable
 
         # 5-7. Security test, patch and verify for each finding; a fix that holds is kept --------
         pristine: dict[str, str] = {}
         kept_tests: list[str] = []
         fixes: list[dict] = []
-        for i, (finding, cause) in enumerate(targets, 1):
+        if fast_mode:
+            fixes, pristine, kept_tests = fast.repair(run, ws, [f for f, _ in targets], [x for _, x in targets], suites,
+                                                      before, setup_ok, python, run.started)
+        for i, (finding, cause) in enumerate([] if fast_mode else targets, 1):
             if run.out_of_time():
                 break
             tag = f"Fix {i} of {len(targets)} · " if multi else ""
@@ -335,8 +369,31 @@ def execute(run_id: int, token: str | None, target: dict | None = None, local: P
         except OSError:
             log.exception("Could not write evidence for run %s", run_id)
         _save(run_id, run.state, final_status, final_verdict or res.get("verdict"))
+        if base_job:
+            try:
+                base_job.result()  # never delete the folder under a test run still going
+            except Exception:
+                pass
         if ws:
             ws.cleanup()
+
+
+def _baseline(run: Run, ws: workspace.Workspace, res: dict) -> tuple[list, list, bool]:
+    """Install dependencies and run the existing tests on the original code."""
+    run.step("baseline", "running", "Installing dependencies")
+    suites = testrun.detect(ws)
+    for s in suites:
+        testrun.setup(ws, s, run.rec)
+    run.step("baseline", "running", "Running the existing tests on the original code")
+    before = [testrun.run_suite(ws, s, run.rec, "baseline") for s in suites]
+    res["suites"] = [{"kind": s.kind, "framework": s.framework, "setup": s.setup_note, "setup_ok": s.setup_ok} for s in suites]
+    res["baseline"] = [b.as_dict() for b in before]
+    setup_ok = all(s.setup_ok for s in suites)
+    ran = [b for b in before if b.ran and (b.passed + b.failed)]
+    run.step("baseline", "done" if ran else "skipped",
+             "; ".join(f"{b.kind}: {b.passed} passed, {b.failed} failed" for b in ran) if ran
+             else "No runnable test suite found (the verdict cannot be Verified)")
+    return suites, before, setup_ok
 
 
 def _fix_one(run: Run, ws: workspace.Workspace, finding: dict, cause: dict, suites: list, before: list,
@@ -367,7 +424,9 @@ def _fix_one(run: Run, ws: workspace.Workspace, finding: dict, cause: dict, suit
             ws.revert()
         ws.write(cand["path"], cand["code"])
         run.step("sectest", "running", f"{tag}Running the exploit test on the original code (attempt {attempt})")
+        tree = testrun.tree_files(ws)
         r = testrun.run_security_test(ws, cand["path"], test_lang, run.rec, f"sectest-original-{n}-{attempt}", python)
+        testrun.remove_new_files(ws, tree)
         sec, sec_before = cand, r
         if r.outcome == "assert_failed":
             break
@@ -399,7 +458,8 @@ def _fix_one(run: Run, ws: workspace.Workspace, finding: dict, cause: dict, suit
         run.step("patch", "running", f"{tag}Writing a minimal patch (attempt {attempt} of {MAX_PATCH_ATTEMPTS})")
         prop = patcher.propose(ws, finding, cause, run.calls, feedback, attempt)
         problems = patcher.apply(ws, prop["edits"])
-        entry = {"attempt": attempt, "explanation": prop["explanation"], "behaviour_change": prop["behaviour_change"]}
+        entry = {"attempt": attempt, "explanation": prop["explanation"], "behaviour_change": prop["behaviour_change"],
+                 "edits": prop["edits"]}
         if problems:
             entry.update(verdict="rejected", reasons=problems)
             attempts.append(entry)
@@ -414,9 +474,11 @@ def _fix_one(run: Run, ws: workspace.Workspace, finding: dict, cause: dict, suit
             feedback = "The patch was rejected: " + "; ".join(entry["reasons"])
             continue
         run.step("verify", "running", f"{tag}Running the existing tests and the exploit test on the patched code (attempt {attempt})")
+        tree = testrun.tree_files(ws)
         after = [testrun.run_suite(ws, s, run.rec, f"patched-{n}-{attempt}", ignore=ignore or None) for s in suites]
         sec_after = testrun.run_security_test(ws, sec_path, test_lang, run.rec, f"sectest-patched-{n}-{attempt}", python) \
             if sec_ok else None
+        testrun.remove_new_files(ws, tree)
         cmp = verify.compare_suites(before, after)
         gates += [verify.gate_pattern(ws, finding), verify.gate_tests(cmp, before, after),
                   verify.gate_exploit(sec_before, sec_after)]
@@ -443,6 +505,14 @@ def _fix_one(run: Run, ws: workspace.Workspace, finding: dict, cause: dict, suit
                       "behaviour_change": last.get("behaviour_change", ""), "attempts": len(attempts), "files": changed},
             "patched": [a.as_dict() for a in after], "comparison": cmp,
             "learning": learn.for_type(finding["type"], finding.get("cwe"))}
+
+
+def _plain(cause) -> str:
+    """The plain explanation from a thorough root cause or a fast repair answer."""
+    if isinstance(cause, Exception):
+        return ""
+    return (cause.get("cause") or cause).get("plain") or ""
+
 
 def _failure_output(rec: Recorder) -> str:
     """The tail of the last failing test commands, for the next patch attempt."""

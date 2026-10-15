@@ -237,6 +237,27 @@ def _totals(res: SuiteResult, output: str) -> None:
 # --------------------------------------------------------------------------- the security test
 
 
+SKIP_WALK = {".git", "node_modules", "__pycache__", ".pytest_cache", ".venv", "venv", "securefix_tests"}
+
+
+def tree_files(ws: Workspace) -> set[str]:
+    """The repository's files (without caches and SecureFix's own tests), to spot files a test leaves behind."""
+    out = set()
+    for folder, dirs, files in os.walk(ws.root):
+        dirs[:] = [d for d in dirs if d not in SKIP_WALK]
+        for name in files:
+            out.add(Path(folder, name).relative_to(ws.root).as_posix())
+    return out
+
+
+def remove_new_files(ws: Workspace, before: set[str]) -> list[str]:
+    """Delete files that appeared since `before` (an exploit test's leftovers would break the existing tests)."""
+    gone = sorted(tree_files(ws) - before)
+    for rel in gone:
+        (ws.root / rel).unlink(missing_ok=True)
+    return gone
+
+
 def run_security_test(ws: Workspace, rel: str, language: str, rec: Recorder, stage: str,
                       python: str = sys.executable) -> SecResult:
     if language == "python":

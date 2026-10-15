@@ -43,6 +43,9 @@ class Settings:
     llm_rpm: int = int(os.getenv("LLM_RPM", "0"))  # requests per minute (Gemini's free tier allows about 10)
     llm_max_output_tokens: int = int(os.getenv("LLM_MAX_OUTPUT_TOKENS", "2600"))
     llm_max_prompt_chars: int = int(os.getenv("LLM_MAX_PROMPT_CHARS", "13000"))
+    # fast: one model call per finding, all at once (about half a minute, ~3 calls); thorough: separate triage,
+    # root cause, exploit test and patch calls with retries (slower, more calls).
+    agent_mode: str = os.getenv("AGENT_MODE", "fast")
     fleet_watch_seconds: int = int(os.getenv("FLEET_WATCH_SECONDS", "60"))
     github_webhook_secret: str = os.getenv("GITHUB_WEBHOOK_SECRET", "")
 

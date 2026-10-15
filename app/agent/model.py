@@ -33,7 +33,7 @@ GUARD = (
 )
 RETRIES = 5
 CHARS_PER_TOKEN = 3.2
-EFFORT = {"discover": "low", "review": "medium", "analyze": "medium", "sectest": "medium", "patch": "medium"}
+EFFORT = {"discover": "low", "review": "medium", "analyze": "medium", "sectest": "medium", "patch": "medium", "repair": "low"}
 
 
 class ModelError(Exception):
@@ -62,7 +62,7 @@ class CallLog:
 class _Limiter:
     def __init__(self):
         self.lock = threading.Lock()
-        self.used: deque[tuple[float, int]] = deque()
+        self.used: deque[list] = deque()  # [time, tokens] per call in the last minute
         self.learned = 0
 
     @property
@@ -74,11 +74,29 @@ class _Limiter:
         if m:
             self.learned = int(m.group(1))
 
-    def wait(self, tokens: int, log: CallLog) -> None:
-        """Block until one more call of `tokens` fits the per-minute token and request caps."""
+    def fits(self, tokens: int) -> bool:
+        """Whether one more call of `tokens` fits right now, without waiting."""
+        cap, rpm = self.cap, settings.llm_rpm
+        with self.lock:
+            now = time.monotonic()
+            recent = [t for when, t in self.used if now - when <= 60]
+            return (not cap or sum(recent) + min(tokens, cap) <= cap) and (not rpm or len(recent) < rpm)
+
+    def settle(self, entry: list | None, actual: int) -> None:
+        """Replace a call's reserved tokens with what the provider says it used."""
+        if actual <= 0:
+            return
+        with self.lock:
+            if entry is not None:
+                entry[1] = actual
+            else:  # a call sent without pacing still counts toward the minute
+                self.used.append([time.monotonic(), actual])
+
+    def wait(self, tokens: int, log: CallLog) -> list | None:
+        """Block until one more call of `tokens` fits the per-minute token and request caps. Returns its entry."""
         cap, rpm = self.cap, settings.llm_rpm
         if not cap and not rpm:
-            return
+            return None
         tokens = min(tokens, cap) if cap else tokens
         while True:
             with self.lock:
@@ -89,15 +107,26 @@ class _Limiter:
                 fits_tokens = not cap or spent + tokens <= cap
                 fits_requests = not rpm or len(self.used) < rpm
                 if fits_tokens and fits_requests:
-                    self.used.append((now, tokens))
-                    return
+                    entry = [now, tokens]
+                    self.used.append(entry)
+                    return entry
                 pause = 60 - (now - self.used[0][0]) + 0.5
             what = f"{cap:,} tokens" if not fits_tokens else f"{rpm} requests"
             log.say(f"Waiting {int(pause) + 1} s for the model's rate limit ({what} per minute)")
             time.sleep(max(1.0, pause))
 
 
-LIMITER = _Limiter()
+LIMITER = _Limiter()                      # the main model's budget (kept for callers that read it)
+_LIMITERS: dict[str, _Limiter] = {}
+_LIMITERS_LOCK = threading.Lock()
+
+
+def limiter(model: str) -> _Limiter:
+    """Each model has its own tokens-per-minute budget (Groq counts them separately)."""
+    if model == settings.llm_model:
+        return LIMITER
+    with _LIMITERS_LOCK:
+        return _LIMITERS.setdefault(model, _Limiter())
 
 
 def _retry_after(message: str) -> float | None:
@@ -157,26 +186,34 @@ def _fit(prompt: str, limit: int) -> str:
     return prompt[: keep * 2 // 3] + "\n\n[... part of the input was cut to fit the model's limit ...]\n\n" + prompt[-keep // 3:]
 
 
-def ask(stage: str, task: str, prompt: str, log: CallLog, effort: str | None = None, timeout: float = 150.0) -> dict:
-    """Send one task to the model and return its JSON answer. Raises ModelError when it cannot."""
+def ask(stage: str, task: str, prompt: str, log: CallLog, effort: str | None = None, timeout: float = 150.0,
+        model: str | None = None, max_out: int | None = None, pace: bool = True) -> dict:
+    """Send one task to the model and return its JSON answer. Raises ModelError when it cannot.
+
+    pace=False skips the limiter's up-front wait (fast mode): the call goes out at once, and a rate-limit answer
+    is retried after the short delay the provider asks for.
+    """
     if not llm.is_configured():
         raise ModelError("No AI model is configured. Add OPENAI_API_KEY (and OPENAI_BASE_URL / OPENAI_MODEL) to .env.")
     system = GUARD + "\n\n" + task.strip()
     prompt = _fit(prompt, budget())
     effort = effort or EFFORT.get(stage, "medium")
-    max_out = settings.llm_max_output_tokens
-    model_used = model_name()
+    max_out = min(max_out or settings.llm_max_output_tokens, settings.llm_max_output_tokens)
+    model_used = model or model_name()
     delay = 4.0
     last = ""
     for attempt in range(1, RETRIES + 1):
         tokens_in = int((len(system) + len(prompt)) / CHARS_PER_TOKEN)
-        cap = LIMITER.cap
+        lim = limiter(model_used)
+        cap = lim.cap
         if cap and tokens_in + max_out > cap:  # keep one call inside the per-minute cap
             max_out = max(900, cap - tokens_in - 200)
-        LIMITER.wait(tokens_in + max_out, log)
+        entry = lim.wait(tokens_in + max_out, log) if pace else None
         start = time.monotonic()
         try:
+            llm.last_usage.tokens = 0
             data = llm.chat_json(system, prompt, timeout=timeout, effort=effort, max_tokens=max_out, model=model_used)
+            lim.settle(entry, getattr(llm.last_usage, "tokens", 0))
             log.add(stage=stage, model=model_used, attempt=attempt, prompt_chars=len(system) + len(prompt),
                     effort=effort, seconds=round(time.monotonic() - start, 2), ok=True)
             if not isinstance(data, dict):
@@ -184,10 +221,10 @@ def ask(stage: str, task: str, prompt: str, log: CallLog, effort: str | None = N
             return data
         except llm.LLMError as exc:
             last = " ".join(str(exc).split())[:400]
-            log.add(stage=stage, model=model_name(), attempt=attempt, prompt_chars=len(system) + len(prompt),
+            log.add(stage=stage, model=model_used, attempt=attempt, prompt_chars=len(system) + len(prompt),
                     effort=effort, seconds=round(time.monotonic() - start, 2), ok=False, error=last[:300])
             if exc.status_code in (413, 429) or "rate limit" in last.lower():
-                LIMITER.learn(last)
+                lim.learn(last)
                 if exc.status_code == 413:  # too large for one minute's budget: shrink and try again
                     prompt = _fit(prompt, int(len(prompt) * 0.7))
                     max_out = max(900, int(max_out * 0.7))

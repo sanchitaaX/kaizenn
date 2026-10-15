@@ -7,6 +7,8 @@ sent back on the next attempt.
 
 from __future__ import annotations
 
+import difflib
+
 from app.agent import model
 from app.agent.workspace import Workspace, is_protected
 
@@ -76,8 +78,8 @@ def apply(ws: Workspace, edits: list[dict]) -> list[str]:
             problems.append(f"the text to replace in {rel} appears {hits} times (it must be exactly once; include "
                             "more surrounding lines)")
             continue
-        if hits == 0:  # often only trailing whitespace differs
-            stripped = _loose_find(text, find)
+        if hits == 0:  # often only trailing whitespace differs, or the model retyped a line slightly differently
+            stripped = _loose_find(text, find) or _close_find(text, find)
             if stripped is None:
                 problems.append(f"the text to replace in {rel} was found {hits} times (it must be exactly once)")
                 continue
@@ -87,6 +89,32 @@ def apply(ws: Workspace, edits: list[dict]) -> list[str]:
             continue
         ws.write(rel, text.replace(find, replace, 1))
     return problems
+
+
+CLOSE = 0.85   # how alike a block must be to the text the model meant
+MARGIN = 0.05  # and how much better than any other block
+
+
+def _close_find(text: str, find: str) -> str | None:
+    """The one block of the same number of lines that is clearly the text the model meant (it retyped quotes or
+    spacing slightly differently). The tests still decide whether the patched code counts."""
+    want = [l.strip() for l in find.strip("\n").splitlines()]
+    if not want or not any(want):
+        return None
+    lines = text.splitlines(keepends=True)
+    goal = "\n".join(want)
+    scored = []
+    for i in range(len(lines) - len(want) + 1):
+        block = "\n".join(l.strip() for l in lines[i:i + len(want)])
+        scored.append((difflib.SequenceMatcher(None, block, goal, autojunk=False).ratio(), i))
+    if not scored:
+        return None
+    scored.sort(reverse=True)
+    best, i = scored[0]
+    if best < CLOSE or (len(scored) > 1 and scored[1][0] > best - MARGIN):
+        return None
+    hit = "".join(lines[i:i + len(want)])
+    return hit.rstrip("\r\n") if not find.endswith("\n") else hit
 
 
 def _loose_find(text: str, find: str) -> str | None:

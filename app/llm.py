@@ -4,6 +4,7 @@ Configure with OPENAI_API_KEY, OPENAI_MODEL and optionally OPENAI_BASE_URL in .e
 """
 
 import json
+import threading
 
 import httpx
 
@@ -26,6 +27,10 @@ class LLMError(RuntimeError):
         if self.status_code in (401, 403):
             return "key"
         return "unavailable"
+
+
+# Tokens the last successful call on this thread used (prompt + answer), as the provider counted them.
+last_usage = threading.local()
 
 
 def is_configured() -> bool:
@@ -68,7 +73,9 @@ def _post(messages: list[dict], *, json_mode: bool, timeout: float, model: str |
         raise LLMError(f"The model returned {res.status_code}: {res.text[:600]}", status_code=res.status_code, code=code)
 
     try:
-        return res.json()["choices"][0]["message"]["content"] or ""
+        data = res.json()
+        last_usage.tokens = int((data.get("usage") or {}).get("total_tokens") or 0)
+        return data["choices"][0]["message"]["content"] or ""
     except (ValueError, KeyError, IndexError, TypeError) as exc:
         raise LLMError("OpenAI sent a reply in an unexpected format.") from exc
 
