@@ -353,3 +353,10 @@ a.resource:hover { background: var(--surface-soft); text-decoration: none; }
 .report-link-sub { font-size: var(--fs-13); color: var(--ink-soft); }
 .report-link-cta { flex: none; font-size: var(--fs-13); font-weight: 600; color: var(--accent-ink); }
 @media (max-width: 560px) { .report-link-sub { display: none; } }
+
+/* ---------- Top bar on the chat page: a slight periwinkle wash ---------- */
+.topbar {
+  background:
+    linear-gradient(90deg, rgba(94, 106, 210, 0.11) 0%, rgba(94, 106, 210, 0.04) 50%, rgba(201, 99, 90, 0.06) 100%),
+    var(--surface);
+}
