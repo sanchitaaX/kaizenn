@@ -218,6 +218,41 @@ LEARN: dict[str, dict] = {
     },
 }
 
+def _video(video_id: str, title: str, channel: str) -> dict:
+    return {"kind": "Video", "title": title, "source": channel, "url": f"https://www.youtube.com/watch?v={video_id}",
+            "thumbnail": f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"}
+
+
+# One short explainer per type, from channels known for security teaching. Each id was checked against YouTube
+# (title and channel) and its thumbnail; tests/test_learn.py keeps them well formed.
+VIDEOS: dict[str, dict] = {
+    "SQL_INJECTION": _video("ciNHn38EyRc", "Running an SQL Injection Attack", "Computerphile"),
+    "COMMAND_INJECTION": _video("UBWMLFbjPBc", "Command Injection: Complete Guide", "Rana Khalil"),
+    "CODE_INJECTION": _video("WWJTsKaJT_g", "Injection Vulnerabilities, or: How I got a free Burger", "LiveOverflow"),
+    "INSECURE_DESERIALIZATION": _video("jwzeJU_62IQ", "Insecure Deserialization Attack Explained", "PwnFunction"),
+    "PATH_TRAVERSAL": _video("6z49dU1HVgI", "Directory Traversal: Complete Guide", "Rana Khalil"),
+    "SSRF": _video("ih5R_c16bKc", "Server-Side Request Forgery (SSRF): Complete Guide", "Rana Khalil"),
+    "IDOR": _video("_jz5qFWhLcg", "Broken Access Control: Complete Guide", "Rana Khalil"),
+    "MISSING_AUTH": _video("_jz5qFWhLcg", "Broken Access Control: Complete Guide", "Rana Khalil"),
+    "XSS": _video("EoaDgUgS6QA", "Cross-Site Scripting (XSS) Explained", "PwnFunction"),
+    "NOSQL_INJECTION": _video("DBNmAJaWcGk", "Exploiting NoSQL Operator Injection to Bypass Authentication", "Intigriti"),
+    "WEAK_HASH": _video("8ZtInClXe1Q", "How NOT to Store Passwords!", "Computerphile"),
+    "OPEN_REDIRECT": _video("TswO4ULUtKY", "What is an Open Redirect?", "Detectify"),
+}
+MAX_LESSONS = 3  # per type: the video, the main guide and a practice lab, so the list stays short
+
+
+def _lessons(resources: list[dict], video: dict | None) -> tuple[list[dict], str]:
+    """The few lessons to show (video first, then the first guide and the first practice lab) and the CWE link."""
+    cwe = next((r["url"] for r in resources if r["kind"] == "Reference" and "cwe.mitre.org" in r["url"]), "")
+    rest = [r for r in resources if "cwe.mitre.org" not in r["url"]]
+    picked = [dict(video)] if video else []
+    for kind in ("Guide", "Practice lab"):
+        picked += [dict(r) for r in rest if r["kind"] == kind][:1]
+    picked += [dict(r) for r in rest if r["url"] not in {x["url"] for x in picked}]  # fill the free slots
+    return picked[:MAX_LESSONS], cwe
+
+
 GENERAL = {
     "remember": [
         "Treat everything that comes from a request, a file or another service as untrusted until it is checked.",
@@ -231,12 +266,12 @@ GENERAL = {
 
 
 def for_type(type_key: str | None, cwe: str | None = None) -> dict:
-    """{remember: [...], resources: [...]} for a vulnerability type; general advice plus its CWE when unknown."""
+    """{remember, resources (at most MAX_LESSONS, video first), cwe_url} for a vulnerability type; general advice
+    and its CWE page when the type is unknown."""
     entry = LEARN.get(type_key or "")
     if entry:
-        return {"remember": list(entry["remember"]), "resources": [dict(r) for r in entry["resources"]]}
-    out = {"remember": list(GENERAL["remember"]), "resources": [dict(r) for r in GENERAL["resources"]]}
+        resources, cwe_url = _lessons(entry["resources"], VIDEOS.get(type_key or ""))
+        return {"remember": list(entry["remember"]), "resources": resources, "cwe_url": cwe_url}
     m = re.search(r"(\d+)", cwe or "")
-    if m:
-        out["resources"].append(_cwe(int(m.group(1))))
-    return out
+    return {"remember": list(GENERAL["remember"]), "resources": [dict(r) for r in GENERAL["resources"]],
+            "cwe_url": _cwe(int(m.group(1)))["url"] if m else ""}

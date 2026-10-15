@@ -34,12 +34,20 @@
 
   function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
 
+  var FIRST_TOPICS = 4;  // the most frequent topics first; the rest behind "Show more"
+
   // One card per kind of problem found in the person's own repositories: where, how many fixed, what to study.
   function repoCard(t) {
     var c = el("article", "card learn-card");
     var head = el("div", "learn-head");
     var left = el("div");
-    left.appendChild(el("h2", "learn-name", t.name + (t.cwe ? " (" + t.cwe + ")" : "")));
+    var title = el("h2", "learn-name", t.name + " ");
+    if (t.cwe) {
+      var cwe = el(safeUrl(t.cwe_url) ? "a" : "span", "learn-cwe", t.cwe);
+      if (safeUrl(t.cwe_url)) { cwe.href = t.cwe_url; cwe.target = "_blank"; cwe.rel = "noopener noreferrer"; cwe.title = "The " + t.cwe + " definition at MITRE"; }
+      title.appendChild(cwe);
+    }
+    left.appendChild(title);
     if (t.plain) left.appendChild(el("p", "learn-plain", t.plain));
     var where = (t.repos || []).map(function (r) { return r.repo.split("/")[1] + " " + r.count; }).join(", ");
     var more = t.repo_count > (t.repos || []).length ? " and " + (t.repo_count - t.repos.length) + " more" : "";
@@ -72,12 +80,60 @@
       box.appendChild(ul);
       c.appendChild(box);
     }
-    if ((t.resources || []).length) {
-      var list = el("div", "list learn-resources");
-      t.resources.forEach(function (r) { list.appendChild(resourceRow(r)); });
-      c.appendChild(list);
-    }
+    lessons(c, t.resources || []);
     return c;
+  }
+
+  // A YouTube video id from a watch / youtu.be link (for the thumbnail), or "".
+  function youtubeId(url) {
+    var m = /(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/.exec(url || "");
+    return m ? m[1] : "";
+  }
+
+  function thumbnailOf(r) {
+    if (safeUrl(r.thumbnail)) return r.thumbnail;
+    var id = youtubeId(r.url);
+    return id ? "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg" : "";
+  }
+
+  // A video lesson as a preview: its thumbnail with a play button, the title and the channel.
+  function videoCard(r) {
+    var a = el("a", "learn-video");
+    a.href = safeUrl(r.url);
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    var shot = el("span", "learn-video-shot");
+    var img = el("img");
+    img.src = thumbnailOf(r);
+    img.alt = "";
+    img.loading = "lazy";
+    img.addEventListener("error", function () { shot.classList.add("is-missing"); });
+    shot.appendChild(img);
+    var play = el("span", "learn-video-play");
+    play.innerHTML = '<svg class="icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.5v13l10.5-6.5z"/></svg>';  // static markup
+    shot.appendChild(play);
+    a.appendChild(shot);
+    var text = el("span", "learn-video-text");
+    text.appendChild(el("span", "learn-video-kind", "Video"));
+    text.appendChild(el("span", "learn-video-title", r.title || "Watch the video"));
+    text.appendChild(el("span", "learn-video-source", r.source ? "by " + r.source : ""));
+    text.appendChild(el("span", "sr-only", "Opens on YouTube in a new tab"));
+    a.appendChild(text);
+    return a;
+  }
+
+  function lessons(c, resources) {
+    var videos = resources.filter(function (r) { return /^video/i.test(r.kind || "") && safeUrl(r.url) && thumbnailOf(r); });
+    var others = resources.filter(function (r) { return videos.indexOf(r) < 0; });
+    if (!videos.length && !others.length) return;
+    var wrap = el("div", "learn-lessons" + (videos.length ? " has-video" : ""));
+    videos.slice(0, 1).forEach(function (r) { wrap.appendChild(videoCard(r)); });
+    if (others.length) {
+      var list = el("div", "list learn-resources");
+      others.forEach(function (r) { list.appendChild(resourceRow(r)); });
+      wrap.appendChild(list);
+    }
+    c.appendChild(wrap);
   }
 
   function section(title, sub) {
@@ -145,12 +201,7 @@
       c.appendChild(note);
     }
 
-    var res = m.resources || [];
-    if (res.length) {
-      var list = el("div", "list learn-resources");
-      res.forEach(function (r) { list.appendChild(resourceRow(r)); });
-      c.appendChild(list);
-    }
+    lessons(c, m.resources || []);
     return c;
   }
 
@@ -192,7 +243,18 @@
       if (repos.length) {
         nodes.push(section("From your repositories",
           "Each kind of problem SecureFix found in your GitHub repositories, how far the fixes have got, and what to study."));
-        repos.forEach(function (t) { nodes.push(repoCard(t)); });
+        var shown = repos.slice(0, FIRST_TOPICS).map(repoCard);
+        nodes = nodes.concat(shown);
+        if (repos.length > FIRST_TOPICS) {
+          var rest = repos.slice(FIRST_TOPICS);
+          var more = el("button", "btn btn-secondary btn-sm learn-more", "Show " + plural(rest.length, "more topic", "more topics"));
+          more.type = "button";
+          more.addEventListener("click", function () {
+            rest.forEach(function (t) { more.parentNode.insertBefore(repoCard(t), more); });
+            more.remove();
+          });
+          nodes.push(more);
+        }
       }
       if (list.length) {
         if (repos.length) nodes.push(section("From your commits", "Mistakes found in commits you wrote."));

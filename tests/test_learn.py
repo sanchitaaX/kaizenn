@@ -38,21 +38,28 @@ def isolated(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("kind", sorted(set(rules.TYPES) | set(catalog.TYPES)))
-def test_every_type_has_study_material_from_trusted_sources(kind):
+def test_every_type_has_a_short_list_of_lessons_from_trusted_sources(kind):
     entry = learn.for_type(kind)
     assert len(entry["remember"]) >= 2 and all(len(x) > 20 for x in entry["remember"])
-    assert len(entry["resources"]) >= 3
+    assert 2 <= len(entry["resources"]) <= learn.MAX_LESSONS
     for r in entry["resources"]:
-        assert r["kind"] in ("Guide", "Practice lab", "Reference") and r["title"] and r["source"]
+        assert r["kind"] in ("Video", "Guide", "Practice lab", "Reference") and r["title"] and r["source"]
         u = urlparse(r["url"])
-        assert u.scheme == "https" and u.netloc in TRUSTED, r["url"]
+        assert u.scheme == "https" and u.netloc in TRUSTED | {"www.youtube.com"}, r["url"]
     cwe = (rules.TYPES.get(kind) or (None, catalog.TYPES.get(kind, {}).get("cwe")))[1]
-    assert any(r["url"].endswith(f"/{cwe.split('-')[1]}.html") for r in entry["resources"]), (kind, cwe)
+    assert entry["cwe_url"] == f"https://cwe.mitre.org/data/definitions/{cwe.split('-')[1]}.html", (kind, cwe)
+    videos = [r for r in entry["resources"] if r["kind"] == "Video"]
+    if kind in learn.VIDEOS:  # the video comes first, with its thumbnail
+        assert entry["resources"][0] == learn.VIDEOS[kind]
+        vid = videos[0]["url"].rsplit("v=", 1)[1]
+        assert len(vid) == 11 and videos[0]["thumbnail"] == f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+    else:
+        assert not videos
 
 
 def test_unknown_types_get_general_advice_and_their_cwe():
     entry = learn.for_type("SOMETHING_ELSE", "CWE-352")
-    assert entry["resources"][-1]["url"] == "https://cwe.mitre.org/data/definitions/352.html"
+    assert entry["cwe_url"] == "https://cwe.mitre.org/data/definitions/352.html" and entry["resources"]
     assert learn.for_type(None)["resources"]
 
 

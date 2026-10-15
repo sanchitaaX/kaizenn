@@ -846,5 +846,5 @@ def _repo_learning(user: dict) -> list[dict]:
                     "total": t["total"], "open": t["open"], "fixed": t["fixed"], "in_review": t["in_review"],
                     "unconfirmed": t["unconfirmed"],
                     "agent_fixed": agent_fixed.get(t["type"], 0), "repos": t["repos"][:5],
-                    "repo_count": len(t["repos"]), "remember": study["remember"], "resources": study["resources"]})
+                    "repo_count": len(t["repos"]), "remember": study["remember"], "resources": study["resources"], "cwe_url": study["cwe_url"]})
     return out
