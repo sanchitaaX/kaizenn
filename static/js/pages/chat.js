@@ -893,6 +893,36 @@
     return h("details", "diff", [h("summary", null, "See what changed"), code]);
   }
 
+  // The changed lines, always visible: file name on top, old and new line numbers in the gutter.
+  function changeView(diff) {
+    const lines = String(diff).replace(/\s+$/, "").split("\n");
+    const files = [];
+    let oldNo = 0;
+    let newNo = 0;
+    const body = h("div", "change-lines");
+    lines.forEach((line) => {
+      if (line.startsWith("+++ ")) { files.push(line.slice(4).replace(/^b\//, "")); return; }
+      if (line.startsWith("--- ") || line.startsWith("diff ") || line.startsWith("index ")) return;
+      const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/);
+      if (hunk) {
+        oldNo = parseInt(hunk[1], 10);
+        newNo = parseInt(hunk[2], 10);
+        body.append(h("div", "change-line is-hunk", [h("span", "ln"), h("span", "ln"), h("span", "sign"), h("span", "code", (hunk[3] || "").trim() || "...")]));
+        return;
+      }
+      let cls = "change-line";
+      let a = "";
+      let b = "";
+      let sign = " ";
+      if (line.startsWith("+")) { cls += " is-add"; b = newNo++; sign = "+"; }
+      else if (line.startsWith("-")) { cls += " is-del"; a = oldNo++; sign = "-"; }
+      else { a = oldNo++; b = newNo++; }
+      body.append(h("div", cls, [h("span", "ln", String(a)), h("span", "ln", String(b)), h("span", "sign", sign), h("span", "code", line.slice(1) || " ")]));
+    });
+    const name = files[0] || "Changed file";
+    return h("div", "change", [h("div", "change-file", [svg("repo", 14), h("span", "mono", name)]), body]);
+  }
+
   function evidenceNode(evidence) {
     const code = h("pre", "diff-code", h("span", "diff-line evidence-line", evidence));
     return h("details", "diff", [h("summary", null, "What I sent"), code]);
@@ -956,12 +986,6 @@
         card.append(section("The attack", "is-alert", kids));
       }
 
-      if (r.fix) {
-        const kids = [p(r.fix.explanation)];
-        if (r.fix.diff) kids.push(diffNode(r.fix.diff));
-        card.append(section(fixed ? "The fix" : "The fix I tried", "", kids));
-      }
-
       if (r.proof) {
         const kids = [h("div", "proof-list", [
           proofLine(r.proof.attack_blocked, "Attack blocked", "The attack still works"),
@@ -971,14 +995,29 @@
         card.append(section("Proof", fixed ? "is-ok" : "is-alert", kids));
       }
 
-      const learning = (r.learning || []).slice(0, 3);
-      if (MODES.learn && learning.length) {
-        card.append(section("Learn this", "", [h("div", "resource-list", learning.map(resourceNode))]));
+      // The change comes last, so the Commit / Ignore bar sits right under it.
+      if (r.fix) {
+        const kids = [];
+        if (r.fix.diff) kids.push(changeView(r.fix.diff));
+        const about = h("ul", "change-about", [
+          r.what_wrong ? h("li", null, [h("strong", null, "Problem: "), firstSentence(r.what_wrong)]) : null,
+          r.fix.explanation ? h("li", null, [h("strong", null, "Change: "), r.fix.explanation]) : null,
+          r.proof ? h("li", null, [h("strong", null, "Result: "),
+            r.proof.attack_blocked && r.proof.tests_pass ? "the attack is blocked and your tests still pass."
+              : !r.proof.attack_blocked ? "the attack still works, so this change is not enough." : "some of your tests fail with this change."]) : null,
+        ]);
+        kids.push(about);
+        card.append(section(fixed ? "The change" : "The change I tried", fixed ? "" : "is-alert", kids));
       }
 
       const parts = [card];
-      if (MODES.report && fixed) parts.push(pullRequestNode(d));
+      if (r.fix) parts.push(decisionNode(d));
       assistant(parts);
+
+      const learning = (r.learning || []).slice(0, 3);
+      if (MODES.learn && learning.length) {
+        assistant([h("div", "result-card", section("Learn this", "", [h("div", "resource-list", learning.map(resourceNode))]))]);
+      }
     }
 
     (d.messages || []).forEach((msg) => {
@@ -986,6 +1025,66 @@
       else assistant([p(msg.text, "msg-reply")]);
     });
     return first;
+  }
+
+  function firstSentence(text) {
+    const m = String(text || "").match(/^.*?[.!?](\s|$)/);
+    return (m ? m[0] : String(text || "")).trim();
+  }
+
+  function decisionNode(d) {
+    const r = d.result;
+    const wrap = h("div", "decision");
+    const showDone = (dec) => {
+      wrap.replaceChildren();
+      wrap.classList.add("is-done");
+      if (dec.action === "commit") {
+        const bits = [svg("check", 16), h("span", null, [
+          "Committed to ", h("span", "mono", dec.branch || "a new branch"),
+          dec.commit_sha ? " as " : null,
+          dec.commit_sha ? h("span", "mono", dec.commit_sha) : null,
+          ". Your original commit is untouched.",
+        ])];
+        wrap.append(h("div", "decision-status", bits));
+        const pr = dec.pull_request && safeUrl(dec.pull_request.url);
+        if (pr) {
+          const a = h("a", "btn btn-secondary btn-sm", ["View pull request", svg("external", 14)]);
+          a.href = pr; a.target = "_blank"; a.rel = "noopener noreferrer";
+          wrap.append(a);
+        }
+      } else {
+        wrap.classList.add("is-ignored");
+        wrap.append(h("div", "decision-status", [svg("x", 16), "Ignored. Nothing was changed in your code."]));
+      }
+    };
+    if (r.decision) { showDone(r.decision); return wrap; }
+
+    const fixed = r.verdict === "fixed";
+    const decide = async (action, btn) => {
+      wrap.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+      const label = btn.textContent;
+      btn.textContent = action === "commit" ? "Committing" : "Ignoring";
+      try {
+        const dec = await SF.api("/api/analyses/" + d.id + "/decision", { method: "POST", body: { action: action } });
+        r.decision = dec;
+        showDone(dec);
+        SF.toast(action === "commit" ? "Fix committed" : "Fix ignored");
+        refreshHistory();
+      } catch (err) {
+        wrap.querySelectorAll("button").forEach((b) => { b.disabled = false; });
+        btn.textContent = label;
+        SF.toast(calm(err, "That did not work. Try again."));
+      }
+    };
+    wrap.append(h("p", "decision-ask", fixed ? "Do you want me to commit this fix?" : "This fix did not pass its checks, so I will not commit it."));
+    const row = h("div", "decision-actions");
+    if (fixed) {
+      const commitBtn = button("Commit fix", "btn btn-primary btn-sm", (e) => decide("commit", e.currentTarget), "check");
+      row.append(commitBtn);
+    }
+    row.append(button(fixed ? "Ignore" : "Ignore for now", "btn btn-secondary btn-sm", (e) => decide("ignore", e.currentTarget), "x"));
+    wrap.append(row);
+    return wrap;
   }
 
   function pullRequestNode(d) {

@@ -638,3 +638,36 @@ def test_profile_modes_and_role(demo):
 def test_profile_role_blocks_cross_site(demo):
     r = demo.post("/api/profile/role", json={"role": "professional"}, headers={"Origin": "https://evil.example"})
     assert r.status_code == 403
+
+
+# --------------------------------------------------------------------------- commit or ignore the fix
+
+
+def test_commit_a_verified_fix_is_saved_and_repeatable(demo):
+    aid = start(demo, "e41b9d2")
+    wait_done(demo, aid)
+    r = demo.post(f"/api/analyses/{aid}/decision", json={"action": "commit"})
+    assert r.status_code == 200, r.text
+    dec = r.json()
+    assert dec["action"] == "commit" and dec["branch"] == "securefix/fix-e41b9d2" and len(dec["commit_sha"]) == 7
+    # Asking again (even with the other action) returns the first decision.
+    assert demo.post(f"/api/analyses/{aid}/decision", json={"action": "ignore"}).json() == dec
+    assert demo.get(f"/api/analyses/{aid}").json()["result"]["decision"] == dec
+
+
+def test_ignore_a_fix_and_no_decision_without_one(demo):
+    aid = start(demo, "c7f0a13")
+    wait_done(demo, aid)
+    r = demo.post(f"/api/analyses/{aid}/decision", json={"action": "ignore"})
+    assert r.status_code == 200 and r.json()["action"] == "ignore" and "branch" not in r.json()
+    # A check whose fix failed has no change to commit or ignore.
+    bad = start(demo, "9a2e6f4")
+    wait_done(demo, bad)
+    assert demo.post(f"/api/analyses/{bad}/decision", json={"action": "commit"}).status_code == 409
+
+
+def test_decision_needs_a_fix_and_a_valid_action(demo):
+    aid = start(demo, "b3e7712")
+    wait_done(demo, aid)
+    assert demo.post(f"/api/analyses/{aid}/decision", json={"action": "ignore"}).status_code == 409
+    assert demo.post(f"/api/analyses/{aid}/decision", json={"action": "push"}).status_code == 422

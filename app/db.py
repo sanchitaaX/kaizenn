@@ -974,6 +974,17 @@ def set_analysis_pull_request(analysis_id: int, pull_request: dict) -> None:
         conn.execute("UPDATE analyses SET result = ? WHERE id = ?", (json.dumps(data), analysis_id))
 
 
+def set_analysis_decision(analysis_id: int, decision: dict) -> None:
+    """Remember whether the user committed or ignored the fix (stored on the result)."""
+    with tx() as conn:
+        row = conn.execute("SELECT result FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
+        if not row or not row["result"]:
+            return
+        data = json.loads(row["result"])
+        data["decision"] = decision
+        conn.execute("UPDATE analyses SET result = ? WHERE id = ?", (json.dumps(data), analysis_id))
+
+
 def add_message(analysis_id: int, role: str, text: str) -> dict:
     ts = iso(now())
     with tx() as conn:

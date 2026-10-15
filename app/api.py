@@ -10,6 +10,7 @@ Errors come back as {"detail": "<plain sentence>"} with a 4xx status.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -536,6 +537,10 @@ class MessageIn(BaseModel):
     text: str = Field(..., max_length=2000)
 
 
+class DecisionIn(BaseModel):
+    action: Literal["commit", "ignore"]
+
+
 MAX_MESSAGES_PER_ANALYSIS = 60
 
 
@@ -651,6 +656,37 @@ def analysis_pull_request(analysis_id: int, user: dict = Depends(require_user)):
     pr = _open_pr(user, a["repo"], commit)
     db.set_analysis_pull_request(analysis_id, pr)
     return pr
+
+
+@router.post("/analyses/{analysis_id}/decision")
+def analysis_decision(analysis_id: int, body: DecisionIn, user: dict = Depends(require_user)):
+    """Commit the verified fix, or ignore it. Returns the saved decision; asking again returns the same one."""
+    a = _analysis_or_404(analysis_id, user)
+    result = a["result"] or {}
+    if a["status"] != "done" or not result.get("fix"):
+        raise HTTPException(status_code=409, detail="There is no fix to commit or ignore for this check.")
+    if result.get("decision"):
+        return result["decision"]
+
+    short = a["sha"][:7]
+    decision: dict = {"action": body.action, "at": db.iso(db.now())}
+    if body.action == "commit":
+        if result.get("verdict") != "fixed":
+            raise HTTPException(status_code=409, detail="This fix did not pass its checks, so it cannot be committed.")
+        commit = db.get_commit(a["repo"], a["sha"])
+        if not commit:
+            raise HTTPException(status_code=404, detail="Commit not found.")
+        if user_token(user) and not user.get("is_demo"):
+            # Real accounts: the fix lands as a pull request from the fix branch, so a person still reviews it.
+            pr = _open_pr(user, a["repo"], commit)
+            db.set_analysis_pull_request(analysis_id, pr)
+            decision.update(branch=f"securefix/fix-{short}", pull_request=pr)
+        else:
+            # Demo: record the commit without touching GitHub.
+            fake = hashlib.sha1(f"{a['repo']}:{a['sha']}:fix".encode()).hexdigest()[:7]
+            decision.update(branch=f"securefix/fix-{short}", commit_sha=fake)
+    db.set_analysis_decision(analysis_id, decision)
+    return decision
 
 
 # --------------------------------------------------------------------------- chat: learning
