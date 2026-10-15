@@ -559,7 +559,12 @@ def test_briefdoc_still_reads_a_brief_written_before_the_rename():
     from app.fleet import briefdoc
 
     old = briefdoc.LEGACY_MARKER + "\n\n# Project brief: me/shop\n\nOnly admins export.\n"
-    assert "Only admins export." in briefdoc.to_brief(old)
+    assert briefdoc.is_ours(old)
+    brief = briefdoc.to_brief(old)
+    assert "Only admins export." in brief and briefdoc.LEGACY_MARKER not in brief
+    recomposed = briefdoc.compose("me/shop", old)
+    assert recomposed.startswith(briefdoc.MARKER) and briefdoc.LEGACY_MARKER not in recomposed
+    assert "Only admins export." in recomposed
 
 
 @pytest.fixture

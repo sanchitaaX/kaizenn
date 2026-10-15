@@ -26,7 +26,7 @@ Use `--accent-ink` / `--alert-ink` for text on tinted backgrounds (contrast). `-
 - Avatars: `.avatar .avatar-sm(24) .avatar-md(32) .avatar-lg(48) .avatar-xl(72)`, `.avatar-stack`.
 - Cards and lists: `.card`, `.card-raised`, `.card-flush`, `.card-head`, `.card-title`, `.card-sub`; `.list > .list-row` (a, button or div) with `.row-main > .row-title + .row-meta` and `.row-end`; `.icon-tile` (`.is-alert`).
 - `.empty > .icon-tile + .empty-title + .empty-text` (use `empty_state()`).
-- Feedback: `.toast` (via `KAIZEN.toast(msg)`), `.skeleton` (`.skeleton-line-sm|lg`), `.spinner`.
+- Feedback: `.toast` (via `Kaizen.toast(msg)`), `.skeleton` (`.skeleton-line-sm|lg`), `.spinner`.
 
 ## Chat
 ```

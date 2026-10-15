@@ -345,7 +345,7 @@ def repo_report(repo_id: int, user: dict = Depends(require_user)):
     if not found:
         raise HTTPException(status_code=404, detail="That repository was not found.")
     name = found["repo"]["full_name"].replace("/", "-")
-    return _pdf(pdf.render_repo(found, store.fixes_for_repo(repo_id), user), f"securefix-{name}.pdf")
+    return _pdf(pdf.render_repo(found, store.fixes_for_repo(repo_id), user), f"kaizen-{name}.pdf")
 
 
 # --------------------------------------------------------------------------- fixes
@@ -510,7 +510,7 @@ def report_pdf(source: Source = "all", owners: str = Query("", max_length=4000),
     top = store.list_repos(ws, per_page=20, owners=picked)["items"]
     min_score = store.get_settings(user["login"])["min_score"]
     major = store.major(ws, min_score, per_page=25, per_repo=8, owners=picked)
-    return _pdf(pdf.render(title, data, top, major, user), "securefix-security-report.pdf")
+    return _pdf(pdf.render(title, data, top, major, user), "kaizen-security-report.pdf")
 
 
 # --------------------------------------------------------------------------- GitHub webhook

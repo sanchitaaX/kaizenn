@@ -766,7 +766,7 @@ def analysis_report_pdf(analysis_id: int, refresh: bool = False, user: dict = De
         raise HTTPException(status_code=409, detail="The check is still running. Try again when it finishes.")
     data = tech_report.build(a, user, refresh=refresh)
     pdf = report_pdf.render(data)
-    name = f"securefix-{a['repo'].replace('/', '-')}-{a['sha'][:7]}.pdf"
+    name = f"kaizen-{a['repo'].replace('/', '-')}-{a['sha'][:7]}.pdf"
     return Response(pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
 

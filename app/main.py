@@ -45,6 +45,7 @@ async def revalidate_static(request, call_next):
         response.headers["Cache-Control"] = "no-cache"
     return response
 
+
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     return FileResponse("static/img/kaizen.svg", media_type="image/svg+xml")
