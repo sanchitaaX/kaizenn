@@ -218,3 +218,42 @@ def update_file(token: str, full_name: str, path: str, content: str, blob_sha: s
     })
     commit = data.get("commit") or {}
     return {"sha": commit.get("sha", ""), "url": commit.get("html_url", "")}
+
+
+# --------------------------------------------------------------------------- code scanning (CodeQL)
+
+
+def list_code_scanning_alerts(token: str, full_name: str, ref: str | None = None, state: str = "open",
+                              limit: int = 100) -> list[dict]:
+    """Open code scanning alerts (CodeQL and other tools) for a repository. Needs the security_events scope.
+
+    Raises GitHubError 404 when code scanning is not set up, 403 when the token lacks permission."""
+    params = {"state": state, "per_page": min(limit, 100)}
+    if ref:
+        params["ref"] = ref
+    items = _get(token, f"/repos/{full_name}/code-scanning/alerts", params)
+    out = []
+    for a in items if isinstance(items, list) else []:
+        rule = a.get("rule") or {}
+        inst = a.get("most_recent_instance") or {}
+        loc = inst.get("location") or {}
+        msg = (inst.get("message") or {}).get("text") or ""
+        out.append({
+            "number": a.get("number"),
+            "url": a.get("html_url"),
+            "state": a.get("state"),
+            "tool": (a.get("tool") or {}).get("name") or "CodeQL",
+            "rule_id": rule.get("id") or "",
+            "rule_name": rule.get("name") or rule.get("description") or "",
+            "description": rule.get("full_description") or rule.get("description") or "",
+            "severity": rule.get("security_severity_level") or rule.get("severity") or "",
+            "tags": rule.get("tags") or [],
+            "message": msg,
+            "path": loc.get("path") or "",
+            "start_line": loc.get("start_line") or 0,
+            "end_line": loc.get("end_line") or 0,
+            "commit_sha": inst.get("commit_sha") or "",
+            "ref": inst.get("ref") or "",
+            "created_at": a.get("created_at"),
+        })
+    return out

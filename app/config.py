@@ -14,13 +14,17 @@ class Settings:
     github_redirect_uri: str = os.getenv("GITHUB_REDIRECT_URI", "http://localhost:8000/auth/callback")
     # OAuth scopes. "repo" lets SecureFix read private repos and open fix pull requests.
     # Use "read:user public_repo" if you only work with public repos.
-    github_scopes: str = os.getenv("GITHUB_SCOPES", "read:user repo")
+    github_scopes: str = os.getenv("GITHUB_SCOPES", "read:user repo security_events")
     session_secret: str = os.getenv("SESSION_SECRET") or secrets.token_urlsafe(32)
     database_path: str = os.getenv("DATABASE_PATH", "securefix.db")
     # LLM provider: OpenAI (Chat Completions API).
     llm_api_key: str = os.getenv("OPENAI_API_KEY", "")
     llm_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     llm_base_url: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    # Smaller, faster model for chat replies (falls back to the main model when unset).
+    llm_fast_model: str = os.getenv("LLM_FAST_MODEL", "")
+    # Reasoning effort for the code review (models that support it, e.g. gpt-oss on Groq): low | medium | high.
+    llm_review_effort: str = os.getenv("LLM_REVIEW_EFFORT", "high")
     demo_mode: bool = os.getenv("DEMO_MODE", "1") == "1"
 
     # Engine

@@ -35,7 +35,8 @@ def _json_system(system: str, schema: dict | None) -> str:
     return text
 
 
-def complete_json(system: str, prompt: str, schema: dict | None = None, max_tokens: int = 4000) -> dict | None:
+def complete_json(system: str, prompt: str, schema: dict | None = None, max_tokens: int = 4000,
+                  effort: str | None = None, timeout: float = 90.0) -> dict | None:
     """Ask the model for a JSON object matching `schema`. Returns None on any failure.
 
     `max_tokens` is accepted for compatibility with older callers and is not sent.
@@ -46,7 +47,7 @@ def complete_json(system: str, prompt: str, schema: dict | None = None, max_toke
         _last_error = "OPENAI_API_KEY is not set, so the AI step was skipped"
         return None
     try:
-        data = openai_client.chat_json(_json_system(system, schema), prompt)
+        data = openai_client.chat_json(_json_system(system, schema), prompt, effort=effort, timeout=timeout)
     except openai_client.LLMError as exc:
         _last_error = f"OpenAI call failed, using the built-in fallback: {' '.join(str(exc).split())[:220]}"
         log.warning(_last_error)
