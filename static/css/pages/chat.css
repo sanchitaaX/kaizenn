@@ -360,3 +360,10 @@ a.resource:hover { background: var(--surface-soft); text-decoration: none; }
     linear-gradient(180deg, rgba(94, 106, 210, 0.16) 0%, rgba(94, 106, 210, 0.06) 45%, rgba(201, 99, 90, 0.08) 100%),
     var(--surface);
 }
+
+/* Top bar on the chat page: the same wash on the left, above the sidebar, fading out to the right */
+.topbar {
+  background:
+    linear-gradient(90deg, rgba(94, 106, 210, 0.16) 0, rgba(94, 106, 210, 0.10) var(--sidebar-w), rgba(94, 106, 210, 0) 560px),
+    var(--surface);
+}
