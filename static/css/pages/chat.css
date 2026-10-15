@@ -354,9 +354,9 @@ a.resource:hover { background: var(--surface-soft); text-decoration: none; }
 .report-link-cta { flex: none; font-size: var(--fs-13); font-weight: 600; color: var(--accent-ink); }
 @media (max-width: 560px) { .report-link-sub { display: none; } }
 
-/* ---------- Top bar on the chat page: a slight periwinkle wash ---------- */
-.topbar {
+/* ---------- Past chats sidebar: a soft periwinkle wash ---------- */
+.chat-sidebar {
   background:
-    linear-gradient(90deg, rgba(94, 106, 210, 0.20) 0%, rgba(94, 106, 210, 0.08) 50%, rgba(201, 99, 90, 0.12) 100%),
+    linear-gradient(180deg, rgba(94, 106, 210, 0.16) 0%, rgba(94, 106, 210, 0.06) 45%, rgba(201, 99, 90, 0.08) 100%),
     var(--surface);
 }
