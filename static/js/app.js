@@ -79,6 +79,15 @@ document.addEventListener("click", (e) => {
     if (open) setTimeout(() => frame.focus(), 50);
   }
   launcher.addEventListener("click", () => setOpen(panel.hidden));
+  // Full screen opens the conversation that is in the panel now (its run, analysis or thread), not a new one.
+  const full = panel.querySelector("[data-chat-full]");
+  if (full) full.addEventListener("click", () => {
+    try {
+      const u = new URL(frame.contentWindow.location.href);
+      u.searchParams.delete("embed");
+      if (u.origin === location.origin && u.pathname.startsWith("/chat")) full.href = u.pathname + u.search;
+    } catch (_) { /* not loaded yet: plain /chat continues the remembered thread anyway */ }
+  });
   panel.addEventListener("click", (e) => { if (e.target.closest("[data-chat-close]")) { setOpen(false); launcher.focus(); } });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !panel.hidden && !document.querySelector("dialog[open]")) { setOpen(false); launcher.focus(); }

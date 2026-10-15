@@ -643,3 +643,17 @@ def test_brief_md_draft_without_ai_lays_the_notes_out(octo, monkeypatch):
     client.put(f"/api/fleet/repos/{repo_id}/brief", json={"brief": "Shop API."})
     draft = client.post(f"/api/fleet/repos/{repo_id}/brief/draft").json()
     assert draft["ai"] is False and draft["body"].startswith("Shop API.")
+
+
+def test_push_brief_md_with_an_expired_github_sign_in_asks_to_sign_in_again(octo, monkeypatch):
+    from app import github
+
+    client, repo_id = octo
+    client.put(f"/api/fleet/repos/{repo_id}/brief", json={"brief": "Shop API."})
+
+    def expired(*a, **kw):
+        raise github.GitHubError("GitHub sign-in has expired. Sign in again.", 401)
+
+    monkeypatch.setattr(github, "get_file", expired)
+    r = client.post(f"/api/fleet/repos/{repo_id}/brief/github", json={"body": "## Overview\nShop API."})
+    assert r.status_code == 401 and "Sign in with GitHub again" in r.json()["detail"]

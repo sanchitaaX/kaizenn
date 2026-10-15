@@ -292,6 +292,9 @@ def push_brief(repo_id: int, payload: PushBriefIn | None = None, user: dict = De
         commit = github.put_file(token, r["full_name"], briefdoc.PATH, doc, branch,
                                  ("Update" if current else "Add") + " the project brief (BRIEF.md)", current[1] if current else None)
     except github.GitHubError as exc:
+        if exc.status_code == 401:  # the stored GitHub token was revoked or expired
+            raise HTTPException(status_code=401, detail="Your GitHub sign-in has expired. Sign in with GitHub again, "
+                                                        "then push BRIEF.md.")
         status = 403 if exc.status_code in (403, 404) else 502
         raise HTTPException(status_code=status, detail=f"GitHub refused the change ({exc}). Check that this account can "
                                                        "push to the repository.")

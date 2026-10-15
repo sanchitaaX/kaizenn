@@ -386,7 +386,32 @@
 
   // ---------------------------------------------------------------- new analysis: repo, commit, brief
 
+  // The conversation on screen is remembered for this browser tab (sessionStorage), so opening the floating chat
+  // on another page or going full screen brings back the same thread instead of a new one. New analysis and
+  // Start over forget it. What is kept: the agent run, analysis or multi-repository check on screen, and the
+  // free messages typed in this thread.
+  const THREAD_KEY = "sf-chat-thread";
+  function savedThread() {
+    try { return JSON.parse(sessionStorage.getItem(THREAD_KEY) || "null"); } catch (_) { return null; }
+  }
+  function remember(patch, fresh) {
+    try { sessionStorage.setItem(THREAD_KEY, JSON.stringify(Object.assign({}, fresh ? {} : savedThread() || {}, patch))); }
+    catch (_) { /* storage off: the chat still works, it just starts fresh next time */ }
+  }
+  function forget() {
+    try { sessionStorage.removeItem(THREAD_KEY); } catch (_) { /* ignore */ }
+  }
+  function replayTalk(talk) {
+    (talk || []).forEach((m) => {
+      if (m.role === "user") userMsg(m.text);
+      else assistant(String(m.text || "").split(/\n{2,}/).map((para) => p(para, "msg-reply")));
+    });
+    S.talk = (talk || []).slice();
+    scrollEnd();
+  }
+
   function startNew(push) {
+    if (push) forget();
     resetThread();
     if (push && location.pathname !== "/chat") history.pushState({}, "", "/chat");
     renderHistory();
@@ -394,7 +419,7 @@
     setRepoChip(null);
     S.multi = new Set();
     setComposer("repo", "Pick repositories below, type any public one (owner/name or a GitHub link), or ask me anything");
-    showWelcome(S.run);
+    return showWelcome(S.run);
   }
 
   function focusFirstChoice(list) {
@@ -627,7 +652,7 @@
     checkManyRepos(names);
   }
 
-  async function checkManyRepos(names) {
+  async function checkManyRepos(names, jobId, onDone) {
     closeRepoMenu(true);
     resetThread();
     if (location.pathname !== "/chat") history.pushState({}, "", "/chat");
@@ -644,7 +669,8 @@
     scrollEnd();
     let job;
     try {
-      job = await SF.api("/api/fleet/check", { method: "POST", body: { repos: names } });
+      job = jobId ? { id: jobId } : await SF.api("/api/fleet/check", { method: "POST", body: { repos: names } });
+      if (!jobId) remember({ check: job.id, names: names }, true);
     } catch (err) {
       if (run !== S.run) return;
       status.textContent = calm(err, "I could not start that check.");
@@ -671,6 +697,7 @@
       bar.closest(".msg").remove();
       showCheckResults(job.results);
       afterCheck();
+      if (onDone) onDone();
     };
     tick();
   }
@@ -964,6 +991,7 @@
       if (run !== S.run) return;
       S.analysisId = res.id;
       history.pushState({}, "", "/chat/" + res.id);
+      remember({ analysis: res.id }, true);
       showSteps(initialSteps(), "On it. This runs in the background, so you can find it again in your history.");
       refreshHistory();
       poll(res.id, run, 0, 300);
@@ -1388,6 +1416,7 @@
       if (run !== S.run) return;
       wait.remove();
       S.talk = (S.talk || []).concat([{ role: "user", text: text }, { role: "assistant", text: res.reply }]).slice(-16);
+      remember({ talk: S.talk });
       assistant(String(res.reply || "").split(/\n{2,}/).map((para) => p(para, "msg-reply")));
     } catch (err) {
       if (run !== S.run) return;
@@ -1410,6 +1439,7 @@
     const run = S.run;
     S.analysisId = id;
     if (opts && opts.push) history.pushState({}, "", "/chat/" + id);
+    if ((savedThread() || {}).analysis !== id) remember({ analysis: id }, true);
     renderHistory();
     setComposer("off", "Loading");
     const wait = assistant([skeleton()]);
@@ -1501,10 +1531,11 @@
       return;
     }
     history.pushState({}, "", "/chat?run=" + res.id);
+    remember({ run: res.id }, true);
     showRun(res.id, run);
   }
 
-  async function showRun(id, run) {
+  async function showRun(id, run, onDone) {
     run = run || S.run;
     S.phase = "running";
     const head = h("div", "agent-head", [h("span", "agent-badge", "SecureFix agent"), h("span", "agent-repo", "")]);
@@ -1528,6 +1559,7 @@
       S.agentRun = d.id;
       renderAgentResult(d);
       afterAgent();
+      if (onDone) onDone();
     };
     tick();
   }
@@ -1678,15 +1710,31 @@
 
   function route() {
     const runId = parseInt(new URLSearchParams(location.search).get("run") || "", 10);
+    const kept = savedThread() || {};
     if (location.pathname === "/chat" && runId) {
       resetThread();
       renderHistory();
-      showRun(runId);
+      const same = kept.run === runId;
+      if (!same) remember({ run: runId }, true);
+      showRun(runId, null, same ? () => replayTalk(kept.talk) : null);
       return;
     }
     const m = location.pathname.match(/^\/chat\/(\d+)\/?$/);
-    if (m) loadAnalysis(parseInt(m[1], 10), { push: false });
-    else startNew(false);
+    if (m) { loadAnalysis(parseInt(m[1], 10), { push: false }); return; }
+    // Plain /chat: the floating panel or the full-screen button. Continue the conversation of this tab, if any.
+    if (kept.run) {
+      history.replaceState({}, "", "/chat?run=" + kept.run);
+      resetThread();
+      renderHistory();
+      showRun(kept.run, null, () => replayTalk(kept.talk));
+    } else if (kept.analysis) {
+      history.replaceState({}, "", "/chat/" + kept.analysis);
+      loadAnalysis(kept.analysis, { push: false });
+    } else if (kept.check && (kept.names || []).length) {
+      checkManyRepos(kept.names, kept.check, () => replayTalk(kept.talk));
+    } else {
+      Promise.resolve(startNew(false)).then(() => { if ((kept.talk || []).length) replayTalk(kept.talk); });
+    }
   }
   window.addEventListener("popstate", route);
 
