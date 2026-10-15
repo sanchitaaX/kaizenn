@@ -1,4 +1,4 @@
-# SecureFix — Project Brief
+# KAIZEN — Project Brief
 
 > Working name. Change it once the team agrees on a final one.
 
@@ -10,7 +10,7 @@
 
 ## 2. One-line pitch
 
-**"Scanners say *maybe*. SecureFix hacks your code, fixes it, proves the fix works — and teaches you why."**
+**"Scanners say *maybe*. KAIZEN hacks your code, fixes it, proves the fix works — and teaches you why."**
 
 ## 3. The problem we are solving
 
@@ -57,7 +57,7 @@ For every commit, the agent runs four steps. Each step is a light on the screen.
 
 ## 7. How we differ from CodeRabbit
 
-| CodeRabbit | SecureFix |
+| CodeRabbit | KAIZEN |
 |---|---|
 | Comments that say "this might be a problem" | Live attack proves the bug is real |
 | Suggested fixes, not verified | Fix verified: attack blocked + tests pass |
@@ -126,7 +126,7 @@ For every commit, the agent runs four steps. Each step is a light on the screen.
 
 ```mermaid
 flowchart LR
-    U[User] -->|Sign in with GitHub| W[SecureFix web app]
+    U[User] -->|Sign in with GitHub| W[KAIZEN web app]
     W -->|Sync commits| GH[GitHub API]
     W -->|Scan commit| E[Engine]
     B[Project brief] -->|AI| R[Security rules]

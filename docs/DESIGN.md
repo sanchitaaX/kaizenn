@@ -1,4 +1,4 @@
-# SecureFix design system
+# KAIZEN design system
 
 All shared styles live in `static/css/app.css`. Page CSS (if any) only adds layout for that page. Use the tokens, never raw hex.
 
@@ -26,7 +26,7 @@ Use `--accent-ink` / `--alert-ink` for text on tinted backgrounds (contrast). `-
 - Avatars: `.avatar .avatar-sm(24) .avatar-md(32) .avatar-lg(48) .avatar-xl(72)`, `.avatar-stack`.
 - Cards and lists: `.card`, `.card-raised`, `.card-flush`, `.card-head`, `.card-title`, `.card-sub`; `.list > .list-row` (a, button or div) with `.row-main > .row-title + .row-meta` and `.row-end`; `.icon-tile` (`.is-alert`).
 - `.empty > .icon-tile + .empty-title + .empty-text` (use `empty_state()`).
-- Feedback: `.toast` (via `SecureFix.toast(msg)`), `.skeleton` (`.skeleton-line-sm|lg`), `.spinner`.
+- Feedback: `.toast` (via `Kaizen.toast(msg)`), `.skeleton` (`.skeleton-line-sm|lg`), `.spinner`.
 
 ## Chat
 ```
@@ -52,5 +52,5 @@ Macros (`{% from "_macros.html" import icon, badge, avatar, empty_state %}`):
 `icon(name, size=16)`, `badge(state, label=none)`, `avatar(member, size='md')`, `empty_state(title, text='', action=none, icon_name='spark')` (action = `{label, href}`; also usable with `{% call %}`).
 Icons: check alert spark git-commit repo paperclip send arrow user book play lock refresh external x chevron.
 
-## JS (`window.SecureFix`)
+## JS (`window.Kaizen`)
 `toast(msg)`, `api(path, {method, body})` (object bodies become JSON; FormData sent as is), `scrollToEnd(el)`. `textarea[data-autogrow]` grows automatically.

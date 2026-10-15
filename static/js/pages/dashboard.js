@@ -18,7 +18,7 @@
 (function () {
   const root = document.getElementById("dashboard");
   if (!root) return;
-  const SF = window.SecureFix;
+  const SF = window.Kaizen;
   const $ = (id) => document.getElementById(id);
 
   const OWNERS_KEY = "securefix.dashboard.owners";
@@ -531,7 +531,7 @@
 
   // The assistant tells the dashboard when Fix all committed something, so the numbers and the list catch up.
   window.addEventListener("message", (e) => {
-    if (e.origin !== location.origin || !e.data || e.data.type !== "securefix:fleet-changed") return;
+    if (e.origin !== location.origin || !e.data || e.data.type !== "kaizen:fleet-changed") return;
     loadSummary();
     loadRepos();
     if (drawer.open && S.drawerRepo) openRepo(S.drawerRepo);
@@ -614,7 +614,7 @@
     body.append(h("div", "drawer-stats", [stat(r.open_critical, "Critical"), stat(r.open_high, "High"),
       stat(r.open_medium, "Medium"), stat(r.open_low, "Low")]));
     if (r.scan_status === "no_code_scanning") {
-      body.append(h("p", "fix-error", "Code scanning is not turned on for this repository, so SecureFix cannot see its problems yet. Turn on CodeQL in the repository's Settings, Code security."));
+      body.append(h("p", "fix-error", "Code scanning is not turned on for this repository, so KAIZEN cannot see its problems yet. Turn on CodeQL in the repository's Settings, Code security."));
     }
     const open = data.vulns.filter((v) => v.status !== "fixed");
     const done = data.vulns.filter((v) => v.status === "fixed");
@@ -629,7 +629,7 @@
   }
 
   // The owner's project brief (optional): a paragraph plus attached files (docs, notes, API descriptions, code).
-  // SecureFix sends it with every fix and agent run for this repository, so the AI understands what the code is for.
+  // KAIZEN sends it with every fix and agent run for this repository, so the AI understands what the code is for.
   const BRIEF_ACCEPT = ".txt,.md,.rst,.pdf,.docx,.json,.yaml,.yml,.toml,.ini,.csv,.sql,.py,.js,.ts,.tsx,.jsx,.html";
   const MAX_BRIEF_FILES = 5;
 
@@ -648,7 +648,7 @@
       edit.addEventListener("click", (e) => { e.stopPropagation(); form(); });
       if (!has) {
         box.replaceChildren(h("div", "brief-head", [h("div", null, [h("strong", null, "Project brief"),
-          h("span", "brief-hint", " Optional: tell SecureFix what this repository does and what must keep working")]), edit]));
+          h("span", "brief-hint", " Optional: tell KAIZEN what this repository does and what must keep working")]), edit]));
         return;
       }
       const toggle = h("button", "btn btn-ghost btn-sm", open ? "Hide" : "Show");
@@ -850,7 +850,7 @@
       const run = await SF.api("/api/agent/runs", { method: "POST", body: { vuln_id: v.id } });
       if (drawer.open) drawer.close();
       SF.openChat("/chat?embed=1&run=" + run.id);
-      SF.toast("The SecureFix agent is fixing this alert. Follow it in the assistant.");
+      SF.toast("The KAIZEN agent is fixing this alert. Follow it in the assistant.");
     } catch (err) { SF.toast(err.message); }
   }
 
@@ -862,7 +862,7 @@
     $("fix-where").replaceChildren();
     $("fix-foot").replaceChildren();
     $("fix-body").replaceChildren(h("div", "fix-loading", [h("span", "spinner"),
-      h("p", null, "SecureFix is reading the code and writing a fix. This can take a few seconds for real repositories.")]));
+      h("p", null, "KAIZEN is reading the code and writing a fix. This can take a few seconds for real repositories.")]));
     if (!fixDlg.open) fixDlg.showModal();
     let data;
     try {

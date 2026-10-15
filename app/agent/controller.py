@@ -16,7 +16,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from app import db
+from app import db, game
 from app.agent import analyze, discover, evidence, fast, model, patcher, rules, sectest, testrun, verify, workspace
 from app.agent.sandbox import Recorder, version
 from app.config import settings
@@ -104,7 +104,7 @@ def recent(login: str, limit: int = 20) -> list[dict]:
     return [dict(r) | {"created_label": db.humanize(r["created_at"])} for r in rows]
 
 
-INTERRUPTED = "SecureFix restarted while this run was going, so it stopped. Start it again."
+INTERRUPTED = "KAIZEN restarted while this run was going, so it stopped. Start it again."
 
 
 def close_interrupted() -> int:
@@ -224,7 +224,7 @@ def execute(run_id: int, token: str | None, target: dict | list | None = None, l
                      f"Fixing {len(findings)} problems from the dashboard: " +
                      "; ".join(f"{f['title']} in {f['file']}:{f['line']}" for f in findings))
         else:
-            run.step("discover", "running", "Scanning with SecureFix rules, Bandit, Semgrep and CodeQL")
+            run.step("discover", "running", "Scanning with KAIZEN rules, Bandit, Semgrep and CodeQL")
             cands, sources = discover.gather(ws, run.rec, token)
             res["candidates"] = [{k: c[k] for k in ("id", "type", "file", "line", "scanner", "severity")} for c in cands]
             if fast_mode:  # the repair call itself decides whether a candidate is real
@@ -246,6 +246,15 @@ def execute(run_id: int, token: str | None, target: dict | list | None = None, l
             res["findings"] = findings[:5]
             run.step("discover", "done", f"{len(findings)} {'candidates' if fast_mode else 'confirmed'} · top: {findings[0]['title']} in "
                                          f"{findings[0]['file']}:{findings[0]['line']}")
+
+        top = findings[0]
+        try:
+            seed = game.quiz_seed(top, ws.read(top["file"]) if ws.exists(top["file"]) else "")
+        except Exception:
+            log.exception("Could not build the quiz for run %s", run_id)
+            seed = None
+        if seed:
+            res["quiz_seed"] = seed  # "Guess the bug" in the chat; the run view never sends it
 
         # 4. Root cause: the top findings in parallel, one per vulnerable function --------------
         run.step("analyze", "running", "Reading the vulnerable code and its callers")
@@ -376,7 +385,9 @@ def execute(run_id: int, token: str | None, target: dict | list | None = None, l
             evidence.write(run_id, res, [c.as_dict() for c in run.rec.commands], run.calls.calls)
         except OSError:
             log.exception("Could not write evidence for run %s", run_id)
-        _save(run_id, run.state, final_status, final_verdict or res.get("verdict"))
+        verdict = final_verdict or res.get("verdict")
+        _save(run_id, run.state, final_status, verdict)
+        game.on_run_finished(row["login"], run_id, final_status, verdict)
         if base_job:
             try:
                 base_job.result()  # never delete the folder under a test run still going

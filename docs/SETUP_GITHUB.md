@@ -1,6 +1,6 @@
 # Set up GitHub sign-in
 
-SecureFix uses a GitHub **OAuth App**. It takes about five minutes.
+KAIZEN uses a GitHub **OAuth App**. It takes about five minutes.
 
 Without it, the app still runs: **Sign in with GitHub** signs you in as the demo user, and the demo data stays in place.
 
@@ -12,7 +12,7 @@ Without it, the app still runs: **Sign in with GitHub** signs you in as the demo
 
    | Field | Value |
    |---|---|
-   | Application name | SecureFix (local) |
+   | Application name | KAIZEN (local) |
    | Homepage URL | `http://localhost:8000` |
    | Authorization callback URL | `http://localhost:8000/auth/callback` |
    | Enable Device Flow | Leave off |
@@ -23,7 +23,7 @@ Without it, the app still runs: **Sign in with GitHub** signs you in as the demo
 
 Make one OAuth App for each place you run the app, for example one for `localhost:8000` and one for the deployed URL. A GitHub OAuth App has a single callback URL.
 
-## 2. Configure SecureFix
+## 2. Configure KAIZEN
 
 ```bash
 cp .env.example .env
@@ -74,4 +74,4 @@ Your GitHub login is matched against commit authors automatically, so your commi
 | You land on `/login?error=github` | The client secret is wrong or expired. Generate a new one. |
 | You land on `/login?error=denied` | You chose Cancel on GitHub. |
 | Sync says the repository was not found | The account cannot see that repo, or the token lacks the `repo` scope for a private repo. Sign out and in again after changing `GITHUB_SCOPES`. |
-| An organisation repository is missing | The organisation may restrict OAuth Apps. An owner can approve SecureFix under the organisation's **Third-party access** settings. |
+| An organisation repository is missing | The organisation may restrict OAuth Apps. An owner can approve KAIZEN under the organisation's **Third-party access** settings. |

@@ -108,7 +108,7 @@ def setup(ws: Workspace, suite: Suite, rec: Recorder) -> Suite:
                    for p in root.glob(pattern)})
     has_project = (root / "pyproject.toml").exists() or (root / "setup.py").exists()
     if not reqs and not has_project:
-        suite.setup_note = "no Python dependencies declared; using SecureFix's Python with pytest"
+        suite.setup_note = "no Python dependencies declared; using KAIZEN's Python with pytest"
         return suite
     venv = ws.base / "venv"
     c = rec.run("install", [sys.executable, "-m", "venv", str(venv)], ws.base, 180)
@@ -241,7 +241,7 @@ SKIP_WALK = {".git", "node_modules", "__pycache__", ".pytest_cache", ".venv", "v
 
 
 def tree_files(ws: Workspace) -> set[str]:
-    """The repository's files (without caches and SecureFix's own tests), to spot files a test leaves behind."""
+    """The repository's files (without caches and KAIZEN's own tests), to spot files a test leaves behind."""
     out = set()
     for folder, dirs, files in os.walk(ws.root):
         dirs[:] = [d for d in dirs if d not in SKIP_WALK]

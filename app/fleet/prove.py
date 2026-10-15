@@ -236,7 +236,7 @@ def prove_demo(vuln: dict, fix: dict, progress) -> list[dict]:
                          evidence=[f"{lang_name}, {new_lines} lines parsed", f"Result: {detail}"]))
     progress(checks)
     pat = pattern_check(vuln["type"], path, fix["old_code"], fix["new_code"])
-    pat["method"] = f"The SecureFix rule for {vuln.get('title') or vuln['type']} was run on the code before and after."
+    pat["method"] = f"The KAIZEN rule for {vuln.get('title') or vuln['type']} was run on the code before and after."
     pat["evidence"] = _pattern_lines(vuln["type"], path, fix["old_code"], start, "before") + \
         (_pattern_lines(vuln["type"], path, fix["new_code"], start, "after") or ["After: no line matches the rule"])
     checks.append(pat)
@@ -253,7 +253,7 @@ def prove_demo(vuln: dict, fix: dict, progress) -> list[dict]:
     status, text = _tests_verdict(b, a)
     runner = "python -I (isolated)" if lang == "python" else "node (fresh VM context)"
     checks.append(_check("tests", status, "Behaviour tests for this code: " + text, before=b, after=a,
-                         runner="SecureFix behaviour tests",
+                         runner="KAIZEN behaviour tests",
                          method=f"The same behaviour tests ran on the old and the fixed code, each in its own "
                                 f"process ({runner}), with external services replaced by local stand-ins.",
                          table=[{"name": t["name"], "before": t["ok"],

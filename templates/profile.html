@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros.html" import icon, avatar %}
 
-{% block title %}Profile | SecureFix{% endblock %}
+{% block title %}Profile | KAIZEN{% endblock %}
 
 {% block styles %}
 <link rel="stylesheet" href="/static/css/pages/profile.css">
@@ -26,7 +26,7 @@
   </section>
 
   <section class="pf-section" aria-labelledby="pf-modes-title">
-    <h2 class="pf-heading" id="pf-modes-title">How should SecureFix answer you?</h2>
+    <h2 class="pf-heading" id="pf-modes-title">How should KAIZEN answer you?</h2>
     <p class="muted pf-lede">Keep at least one on.</p>
 
     <div class="pf-toggle">
@@ -50,6 +50,32 @@
         <span class="switch-track"></span>
       </label>
     </div>
+  </section>
+
+  <section class="pf-section" aria-labelledby="pf-game-title">
+    <div class="pf-toggle">
+      <div class="pf-toggle-text">
+        <h2 class="pf-heading" id="pf-game-title">Quests &amp; rewards</h2>
+        <p class="muted small" id="game-hint">Earn XP, levels and demo coupons while you check code. Off by default.</p>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="game-mode" data-game aria-labelledby="pf-game-title" aria-describedby="game-hint"{% if user.game_mode %} checked{% endif %}>
+        <span class="switch-track"></span>
+      </label>
+    </div>
+    {% if game.enabled and game.rewards %}
+    <ul class="list pf-rewards" aria-label="Your rewards">
+      {% for r in game.rewards %}
+      <li class="list-row">
+        <span class="row-main">
+          <span class="row-title">{{ r.discount }}% off on {{ r.platform }} · level {{ r.level }}</span>
+          <code class="pf-code">{{ r.code }}</code>
+        </span>
+        <span class="pf-demo">{{ r.label }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
   </section>
 
   <section class="pf-section" aria-labelledby="pf-role-title">

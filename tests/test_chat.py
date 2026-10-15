@@ -649,7 +649,7 @@ def test_commit_a_verified_fix_is_saved_and_repeatable(demo):
     r = demo.post(f"/api/analyses/{aid}/decision", json={"action": "commit"})
     assert r.status_code == 200, r.text
     dec = r.json()
-    assert dec["action"] == "commit" and dec["branch"] == "securefix/fix-e41b9d2" and len(dec["commit_sha"]) == 7
+    assert dec["action"] == "commit" and dec["branch"] == "kaizen/fix-e41b9d2" and len(dec["commit_sha"]) == 7
     # Asking again (even with the other action) returns the first decision.
     assert demo.post(f"/api/analyses/{aid}/decision", json={"action": "ignore"}).json() == dec
     assert demo.get(f"/api/analyses/{aid}").json()["result"]["decision"] == dec

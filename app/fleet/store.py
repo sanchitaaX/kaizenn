@@ -338,7 +338,7 @@ def get_brief(repo_id: int) -> dict:
 
 
 def brief_for(workspaces: list[str], full_name: str) -> str:
-    """Everything the owner told SecureFix about a repository, sized for a prompt: the paragraph, then the start
+    """Everything the owner told KAIZEN about a repository, sized for a prompt: the paragraph, then the start
     of each attached file. '' when there is none."""
     where, args = _where(workspaces)
     with _tx() as conn:
@@ -560,7 +560,7 @@ def save_github_repo(login: str, repo: dict, alerts: list[dict] | None, scan_sta
                      "(SELECT vuln_id FROM fleet_fixes)", (repo_id,))
         rows = conn.execute("SELECT alert_number, file, line, type FROM fleet_vulns WHERE repo_id = ?", (repo_id,)).fetchall()
         kept = {r["alert_number"] for r in rows if r["alert_number"] is not None}
-        kept_at = {(r["file"], r["line"], r["type"]) for r in rows}  # SecureFix's own findings have no alert number
+        kept_at = {(r["file"], r["line"], r["type"]) for r in rows}  # KAIZEN's own findings have no alert number
         conn.executemany(
             """INSERT INTO fleet_vulns (repo_id, type, title, severity, cwe, file, line, description, source,
                    alert_number, alert_url, status, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)""",

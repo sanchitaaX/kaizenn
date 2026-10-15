@@ -1,7 +1,7 @@
 """Fallback scan for repositories without GitHub code scanning.
 
 GitHub only returns alerts when code scanning (CodeQL) is turned on, so most repositories would stay "Not
-scanned". For those, the default branch is downloaded and SecureFix's own scanners run on it: the built-in rules
+scanned". For those, the default branch is downloaded and KAIZEN's own scanners run on it: the built-in rules
 and Bandit (Python). These are pattern matches, not findings the model has confirmed; the description says so.
 """
 
@@ -54,7 +54,7 @@ def scan(token: str, repo: dict) -> list[dict]:
         out.append({
             "type": c["type"], "title": c["title"], "severity": c["severity"], "cwe": c["cwe"],
             "file": c["file"], "line": c["line"],
-            "description": (f"Flagged by SecureFix's {c['scanner']} scan{note}. Code scanning is off for this "
+            "description": (f"Flagged by KAIZEN's {c['scanner']} scan{note}. Code scanning is off for this "
                             "repository, so this is a pattern match that has not been confirmed yet.")[:600],
             "alert_number": None,
             "alert_url": f"{repo['html_url']}/blob/{branch}/{c['file']}#L{c['line']}" if repo.get("html_url") else None,

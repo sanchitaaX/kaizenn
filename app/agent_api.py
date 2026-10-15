@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from app import db, github
+from app import db, game, github
 from app.agent import controller, rules
 from app.api import same_origin
 from app.auth import require_user, user_token
@@ -36,7 +36,7 @@ def _repo_name(raw: str) -> str:
 
 
 def target_from_vuln(v: dict) -> dict:
-    """A dashboard problem (a code scanning alert or SecureFix's own finding) as a finding the agent starts from."""
+    """A dashboard problem (a code scanning alert or KAIZEN's own finding) as a finding the agent starts from."""
     _, cwe, _ = rules.TYPES.get(v["type"], (v["title"], v.get("cwe"), v["severity"]))
     scanner = f"codeql #{v.get('alert_number')}" if v.get("alert_number") else "securefix scan"
     return {"id": f"A{v['id']}", "type": v["type"], "title": v["title"], "cwe": v.get("cwe") or cwe,
@@ -47,6 +47,7 @@ def _view(run: dict) -> dict:
     state = run["state"]
     res = dict(state.get("result") or {})
     res.pop("files", None)
+    res["quiz_ready"] = bool(res.pop("quiz_seed", None))  # the quiz answer stays on the server
     return {"id": run["id"], "repo": run["repo"], "status": run["status"], "verdict": run["verdict"],
             "vuln_id": run["vuln_id"], "created_label": run["created_label"], "steps": state["steps"], "result": res}
 
@@ -79,6 +80,7 @@ def start_run(body: RunIn, user: dict = Depends(require_user)):
     from app.fleet_api import _workspaces
 
     brief = store.brief_for(_workspaces(user), repo)
+    game.award_quietly(user["login"], "daily_chat", game.today())
     run_id = controller.start(user["login"], repo, token, ref=(body.ref or None), target=target, vuln_id=body.vuln_id,
                               brief=brief)
     return {"id": run_id}
@@ -101,7 +103,7 @@ def report_pdf(run_id: int, user: dict = Depends(require_user)):
     run = _run_or_404(run_id, user)
     if run["status"] == "running":
         raise HTTPException(status_code=409, detail="The run is still going.")
-    name = f"securefix-agent-{run['repo'].replace('/', '-')}-{run_id}.pdf"
+    name = f"kaizen-agent-{run['repo'].replace('/', '-')}-{run_id}.pdf"
     return Response(report.render(run, user), media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
@@ -120,7 +122,7 @@ def pull_request(run_id: int, user: dict = Depends(require_user)):
     if not token or not files:
         raise HTTPException(status_code=409, detail="There is no patch to send.")
     repo, base, sha = run["repo"], ws.get("ref") or "main", ws.get("sha")
-    branch = f"securefix/agent-{run_id}"
+    branch = f"kaizen/agent-{run_id}"
     f = res.get("finding") or {}
     try:
         github.create_branch(token, repo, branch, sha)
@@ -130,7 +132,7 @@ def pull_request(run_id: int, user: dict = Depends(require_user)):
                             found[1] if found else None)
         for sec in res.get("security_tests") or [res.get("security_test") or {}]:
             if sec.get("code") and sec.get("path"):
-                github.put_file(token, repo, sec["path"], sec["code"], branch, "Add the SecureFix exploit regression test")
+                github.put_file(token, repo, sec["path"], sec["code"], branch, "Add the KAIZEN exploit regression test")
         fixes = [x for x in res.get("fixes") or [] if x.get("verdict") != "failed"]
         title = (f"Fix {len(fixes)} security vulnerabilities" if len(fixes) > 1 else
                  f"Fix {f.get('title', 'security issue').lower()} in {f.get('file', '')}")
@@ -142,6 +144,7 @@ def pull_request(run_id: int, user: dict = Depends(require_user)):
     res["pull_request"] = pr
     run["state"]["result"]["pull_request"] = pr
     controller._save(run_id, run["state"])
+    game.award_quietly(user["login"], "pr_opened", f"run-{run_id}")
     if run.get("vuln_id"):
         store.set_vuln_status(run["vuln_id"], "pr_open")
     return pr
@@ -157,7 +160,7 @@ def _titles(res: dict, path: str) -> str:
 def _pr_body(run_id: int, res: dict) -> str:
     fixes = res.get("fixes") or []
     if len(fixes) > 1:
-        lines = [f"**SecureFix agent run {run_id}: {res.get('verdict', '').upper()}**", "",
+        lines = [f"**KAIZEN agent run {run_id}: {res.get('verdict', '').upper()}**", "",
                  f"The agent worked through {len(fixes)} vulnerabilities. Each one has its own exploit test, run on the "
                  "original code and again on the patched code; the checks below say what each run showed.", ""]
         for n, x in enumerate(fixes, 1):
@@ -172,10 +175,10 @@ def _pr_body(run_id: int, res: dict) -> str:
             elif sec.get("path"):
                 lines.append(f"- Exploit test: `{sec['path']}`")
             lines.append("")
-        lines += ["Download the full report from the SecureFix run.", "", "This change was written by an AI agent. Please review it before merging."]
+        lines += ["Download the full report from the KAIZEN run.", "", "This change was written by an AI agent. Please review it before merging."]
         return "\n".join(lines)
     f, rc = res.get("finding") or {}, res.get("root_cause") or {}
-    lines = [f"**SecureFix agent run {run_id}: {res.get('verdict', '').upper()}**", "",
+    lines = [f"**KAIZEN agent run {run_id}: {res.get('verdict', '').upper()}**", "",
              f"**{f.get('title')}** ({f.get('cwe') or '-'}, {f.get('severity')}) in `{f.get('file')}` line {f.get('line')}.",
              "", rc.get("plain") or "", "", "**Proof**"]
     for g in res.get("gates") or []:
@@ -184,6 +187,6 @@ def _pr_body(run_id: int, res: dict) -> str:
     sec = res.get("security_test") or {}
     if sec.get("path"):
         lines += ["", f"The exploit test `{sec['path']}` is included: it failed on the original code and passes with this patch."]
-    lines += ["", "Download the full report from the SecureFix run.",
+    lines += ["", "Download the full report from the KAIZEN run.",
               "", "This change was written by an AI agent. Please review it before merging."]
     return "\n".join(lines)

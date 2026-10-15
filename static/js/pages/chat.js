@@ -10,7 +10,7 @@
 (function () {
   "use strict";
 
-  const SF = window.SecureFix;
+  const SF = window.Kaizen;
   const root = document.getElementById("chat");
   if (!root || !SF) return;
 
@@ -60,6 +60,7 @@
     multi: new Set(),  // repositories ticked in the menu for a multi-repository check
   };
   let composerMode = "off"; // off | brief | ask
+  let GAME = null; // quests and rewards (static/js/pages/game.js), only when switched on in the Profile
 
   // ---------------------------------------------------------------- tiny DOM helpers
 
@@ -1351,6 +1352,7 @@
         const pr = await SF.api("/api/analyses/" + d.id + "/pull-request", { method: "POST" });
         showOpened(pr);
         SF.toast("Pull request opened");
+        if (GAME) GAME.refresh();
       } catch (err) {
         b.disabled = false;
         b.textContent = "Open pull request";
@@ -1418,6 +1420,7 @@
       S.talk = (S.talk || []).concat([{ role: "user", text: text }, { role: "assistant", text: res.reply }]).slice(-16);
       remember({ talk: S.talk });
       assistant(String(res.reply || "").split(/\n{2,}/).map((para) => p(para, "msg-reply")));
+      if (GAME) GAME.refresh();
     } catch (err) {
       if (run !== S.run) return;
       wait.remove();
@@ -1441,7 +1444,7 @@
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
   function notifyDashboard() {
-    try { window.parent.postMessage({ type: "securefix:fleet-changed" }, location.origin); } catch (_) { /* not embedded */ }
+    try { window.parent.postMessage({ type: "kaizen:fleet-changed" }, location.origin); } catch (_) { /* not embedded */ }
   }
 
   async function startFixAll(repoId, kept) {
@@ -1478,7 +1481,7 @@
     if (res.mode === "agent") {
       if (!res.run) { assistant([p(res.message)]); afterAgent(); return; }
       if ((res.handling || []).length) {
-        assistant([p(`The SecureFix agent is taking on the ${res.handling.length} riskiest problems in ${name}:`),
+        assistant([p(`The KAIZEN agent is taking on the ${res.handling.length} riskiest problems in ${name}:`),
           h("ol", "fixall-list", res.handling.map((v) => h("li", "fixall-item", [
             h("span", "sev sev-" + v.severity, SEV[v.severity] || v.severity),
             h("span", "fixall-what", [v.title, h("code", null, `${v.file}:${v.line}`)])])))]);
@@ -1635,17 +1638,18 @@
     }
     history.pushState({}, "", "/chat?run=" + res.id);
     remember({ run: res.id }, true);
+    if (GAME) GAME.refresh();
     showRun(res.id, run);
   }
 
   async function showRun(id, run, onDone) {
     run = run || S.run;
     S.phase = "running";
-    const head = h("div", "agent-head", [h("span", "agent-badge", "SecureFix agent"), h("span", "agent-repo", "")]);
+    const head = h("div", "agent-head", [h("span", "agent-badge", "KAIZEN agent"), h("span", "agent-repo", "")]);
     const steps = h("ol", "agent-steps");
     const msg = assistant([head, steps]);
     scrollEnd();
-    let fails = 0;
+    let fails = 0; let quiz = null;
     const tick = async () => {
       if (run !== S.run) return;
       let d;
@@ -1658,11 +1662,17 @@
       head.lastChild.textContent = d.repo + (d.result.workspace ? " @ " + d.result.workspace.sha.slice(0, 7) : "");
       setRepoChip({ full_name: d.repo });
       renderSteps(steps, d.steps);
+      if (GAME && d.result.quiz_ready && !quiz) quiz = GAME.quiz(id, steps);
       if (d.status === "running") { S.pollTimer = setTimeout(tick, 1500); return; }
       S.agentRun = d.id;
-      renderAgentResult(d);
-      afterAgent();
-      if (onDone) onDone();
+      const reveal = () => {
+        if (run !== S.run) return;
+        renderAgentResult(d);
+        afterAgent();
+        if (GAME) GAME.refresh();
+        if (onDone) onDone();
+      };
+      if (quiz) quiz.then(reveal); else reveal();
     };
     tick();
   }
@@ -1744,6 +1754,7 @@
             const a = h("a", "btn btn-primary btn-sm", ["View pull request", svg("external", 14)]);
             a.href = out.url; a.target = "_blank"; a.rel = "noopener noreferrer";
             pr.replaceWith(a);
+            if (GAME) GAME.refresh();
           } catch (err) { SF.toast(calm(err, "GitHub did not accept the pull request.")); pr.disabled = false; }
         });
         actions.prepend(pr);
@@ -1853,6 +1864,10 @@
 
   if (modeChip) {
     modeChip.textContent = MODES.learn && MODES.report ? "Learn + Report" : MODES.report ? "Report mode" : "Learn mode";
+  }
+  if (root.dataset.game === "1" && window.KaizenGame) {
+    GAME = window.KaizenGame.init({ bar: $("game-bar"), post: (node) => { assistant([node]); scrollEnd(); } });
+    GAME.refresh();
   }
   route();
 })();

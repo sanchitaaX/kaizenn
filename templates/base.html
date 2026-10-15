@@ -3,11 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}SecureFix{% endblock %}</title>
+  <title>{% block title %}KAIZEN{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/app.css">
+  <link rel="icon" type="image/svg+xml" href="/static/img/kaizen.svg">
   {% block styles %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}{% if embed %} is-embed{% endif %}">
@@ -16,11 +17,9 @@
   {% block nav %}
   {% if not embed %}
   <header class="topbar">
-    <a class="brand" href="/dashboard" aria-label="SecureFix home">
-      <span class="brand-mark" aria-hidden="true">
-        <svg class="icon icon-18" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
-      </span>
-      <span class="brand-text">SecureFix</span>
+    <a class="brand" href="/dashboard" aria-label="KAIZEN home">
+      <img class="brand-mark" src="/static/img/kaizen.svg" alt="" width="28" height="28">
+      <span class="brand-text">KAIZEN</span>
     </a>
 
     <nav class="tabs" aria-label="Main">
@@ -46,17 +45,15 @@
   </main>
 
   {% if user and not embed and active != 'chat' %}
-  <button class="chat-launcher" id="chat-launcher" type="button" aria-label="Open the SecureFix assistant"
+  <button class="chat-launcher" id="chat-launcher" type="button" aria-label="Open the KAIZEN assistant"
           aria-controls="chat-panel" aria-expanded="false">
     <svg class="icon chat-launcher-open" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 11.5a7.5 7.5 0 0 1-11.2 6.5L4 19.5l1.5-4.3A7.5 7.5 0 1 1 20 11.5z"/><path d="M8.5 11.5h.01"/><path d="M12 11.5h.01"/><path d="M15.5 11.5h.01"/></svg>
     <svg class="icon chat-launcher-close" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></svg>
   </button>
-  <section class="chat-panel" id="chat-panel" role="dialog" aria-label="SecureFix assistant" hidden>
+  <section class="chat-panel" id="chat-panel" role="dialog" aria-label="KAIZEN assistant" hidden>
     <header class="chat-panel-head">
-      <span class="chat-panel-mark" aria-hidden="true">
-        <svg class="icon" width="16" height="16" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
-      </span>
-      <span class="chat-panel-title">Ask SecureFix</span>
+      <img class="chat-panel-mark" src="/static/img/kaizen.svg" alt="" width="20" height="20">
+      <span class="chat-panel-title">Ask KAIZEN</span>
       <span class="spacer"></span>
       <a class="btn btn-ghost btn-icon btn-sm" href="/chat" data-chat-full title="Open the chat full screen" aria-label="Open the chat full screen">
         <svg class="icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14 4h6v6"/><path d="M20 4l-7 7"/><path d="M10 20H4v-6"/><path d="M4 20l7-7"/></svg>
@@ -65,7 +62,7 @@
         <svg class="icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></svg>
       </button>
     </header>
-    <iframe class="chat-panel-frame" id="chat-frame" title="SecureFix assistant" data-src="/chat?embed=1"></iframe>
+    <iframe class="chat-panel-frame" id="chat-frame" title="KAIZEN assistant" data-src="/chat?embed=1"></iframe>
   </section>
   {% endif %}
 

@@ -107,3 +107,49 @@ def test_new_users_default_to_student_with_learn_mode(client):
     user = db.upsert_github_user({"login": "fresh-dev", "id": 7, "name": "Fresh Dev"})
     assert user["role"] == "student"
     assert user["learn_mode"] is True and user["report_mode"] is False
+
+
+def test_pages_are_branded_kaizen(demo):
+    for path in APP_PAGES:
+        html = demo.get(path).text
+        assert "KAIZEN" in html, path
+        assert "SecureFix" not in html, path
+        assert 'rel="icon"' in html and "/static/img/kaizen.svg" in html, path
+    assert "window.Kaizen" in demo.get("/static/js/app.js").text
+
+
+def test_login_page_is_branded_kaizen(client):
+    html = client.get("/login").text
+    assert "KAIZEN" in html and "SecureFix" not in html
+
+
+def test_favicon_route_serves_the_mark(client):
+    r = client.get("/favicon.ico")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
+    assert "#5e6ad2" in r.text
+
+
+def test_profile_has_the_quests_switch_off_by_default(demo):
+    html = demo.get("/profile").text
+    assert 'id="game-mode"' in html and "Quests &amp; rewards" in html
+    assert 'id="game-mode" data-game' in html and "checked" not in html.split('id="game-mode"')[1].split(">")[0]
+    assert "DEMO — not redeemable" not in html
+
+
+def test_profile_lists_demo_rewards_when_on(demo):
+    from app import game
+
+    demo.post("/api/profile/modes", json={"game_mode": True})
+    login = demo.get("/api/me").json()["user"]["login"]
+    game.award(login, "run_verified", 1)  # 175 XP: level 2 reward
+    html = demo.get("/profile").text
+    assert "KZN-DEMO-UDMY-" in html and "DEMO — not redeemable" in html and "20% off on Udemy" in html
+
+
+def test_chat_loads_the_game_only_when_on(demo):
+    html = demo.get("/chat").text
+    assert 'data-game="0"' in html and "/static/js/pages/game.js" not in html and 'id="game-bar"' not in html
+    demo.post("/api/profile/modes", json={"game_mode": True})
+    html = demo.get("/chat").text
+    assert 'data-game="1"' in html and "/static/js/pages/game.js" in html and 'id="game-bar"' in html
+    assert demo.get("/static/js/pages/game.js").status_code == 200

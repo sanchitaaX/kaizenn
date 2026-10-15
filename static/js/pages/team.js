@@ -32,7 +32,7 @@
   const clearBtn = $("#team-clear");
   const syncBtn = $("#team-sync");
 
-  const toast = (msg) => window.SecureFix && window.SecureFix.toast(msg);
+  const toast = (msg) => window.Kaizen && window.Kaizen.toast(msg);
 
   const memberOf = (login) =>
     members.find((m) => m.login === login) || { login, name: login, avatar_url: `/avatar/${login}.svg` };
@@ -347,8 +347,8 @@
 
       let reload = false;
       try {
-        if (!window.SecureFix || !window.SecureFix.api) throw new Error("App helpers missing");
-        const res = await window.SecureFix.api("/api/commits/sync", { method: "POST" });
+        if (!window.Kaizen || !window.Kaizen.api) throw new Error("App helpers missing");
+        const res = await window.Kaizen.api("/api/commits/sync", { method: "POST" });
         const added = res && typeof res.added === "number" ? res.added : null;
         if (added === 0) {
           toast("Already up to date");

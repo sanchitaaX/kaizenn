@@ -21,7 +21,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
-from app import db
+from app import db, game
 from app.api import same_origin
 from app.auth import require_user, user_token
 from app.config import settings
@@ -233,7 +233,10 @@ def save_brief(repo_id: int, body: BriefIn, user: dict = Depends(require_user)):
         if "\x00" in f.text:
             raise HTTPException(status_code=422, detail=f"{f.name} is not a text file. Attach text, Markdown or code.")
         files.append({"name": f.name.replace("\\", "/").rsplit("/", 1)[-1][:120], "text": f.text})
-    return store.set_brief(repo_id, ws, body.brief.strip(), body.keep_files, files)
+    saved = store.set_brief(repo_id, ws, body.brief.strip(), body.keep_files, files)
+    if body.brief.strip():
+        game.award_quietly(user["login"], "brief_saved", f"repo-{repo_id}")
+    return saved
 
 
 def _brief_repo(repo_id: int, user: dict) -> dict:
@@ -261,7 +264,7 @@ def draft_brief(repo_id: int, user: dict = Depends(require_user)):
 @router.post("/repos/{repo_id}/brief/github")
 def push_brief(repo_id: int, payload: PushBriefIn | None = None, user: dict = Depends(require_user)):
     """Write the project brief into the repository as BRIEF.md on its default branch, so it is kept with the code.
-    `body` is the reviewed draft; without it the notes are laid out as they are. Only a BRIEF.md that SecureFix
+    `body` is the reviewed draft; without it the notes are laid out as they are. Only a BRIEF.md that KAIZEN
     wrote is replaced; another file with that name is left alone."""
     from app import github
     from app.fleet import briefdoc
@@ -284,7 +287,7 @@ def push_brief(repo_id: int, payload: PushBriefIn | None = None, user: dict = De
     try:
         current = github.get_file(token, r["full_name"], briefdoc.PATH, branch)
         if current and not briefdoc.is_ours(current[0]):
-            raise HTTPException(status_code=409, detail="This repository already has its own BRIEF.md, so SecureFix left it "
+            raise HTTPException(status_code=409, detail="This repository already has its own BRIEF.md, so KAIZEN left it "
                                                         "alone. Rename it, or add the brief to it by hand.")
         if current and current[0] == doc:
             return {"path": briefdoc.PATH, "branch": branch, "unchanged": True,
@@ -364,13 +367,13 @@ def fix_repo(repo_id: int, user: dict = Depends(require_user)):
                  if x["status"] == "running" and x["repo"].lower() == r["full_name"].lower()), None)
     if busy:
         return {"mode": "agent", "repo": view, "run": busy["id"], "handling": [],
-                "message": "The SecureFix agent is already fixing this repository."}
+                "message": "The KAIZEN agent is already fixing this repository."}
     picked = [store.get_vuln(v["id"], _workspaces(user)) for v in todo[:FIX_ALL_AGENT]]  # riskiest first
     run_id = controller.start(user["login"], r["full_name"], token, target=[target_from_vuln(v) for v in picked],
                               brief=store.brief_for(_workspaces(user), r["full_name"]))
     return {"mode": "agent", "repo": view, "run": run_id,
             "handling": [{k: v.get(k) for k in ("title", "severity", "file", "line")} for v in picked],
-            "message": "The SecureFix agent is fixing this repository."}
+            "message": "The KAIZEN agent is fixing this repository."}
 
 
 @router.post("/repos/{repo_id}/commit-all")
@@ -390,7 +393,7 @@ def commit_all(repo_id: int, body: CommitAllIn, user: dict = Depends(require_use
         if not vuln or vuln["repo_id"] != repo_id:
             continue
         short = hashlib.sha1(f"{fix_id}:{vuln['id']}".encode()).hexdigest()[:7]
-        store.decide_fix(fix_id, "committed", "fixed", branch=f"securefix/vuln-{vuln['id']}", commit_sha=short)
+        store.decide_fix(fix_id, "committed", "fixed", branch=f"kaizen/vuln-{vuln['id']}", commit_sha=short)
         committed.append({"fix_id": fix_id, "commit_sha": short, "title": vuln["title"]})
     repo = store.get_repo(repo_id, _workspaces(user))["repo"]
     return {"committed": committed, "repo": {k: repo[k] for k in ("id", "risk_score", "band", "band_label", "open_total")},
@@ -406,7 +409,7 @@ def repo_report(repo_id: int, user: dict = Depends(require_user)):
     if not found:
         raise HTTPException(status_code=404, detail="That repository was not found.")
     name = found["repo"]["full_name"].replace("/", "-")
-    return _pdf(pdf.render_repo(found, store.fixes_for_repo(repo_id), user), f"securefix-{name}.pdf")
+    return _pdf(pdf.render_repo(found, store.fixes_for_repo(repo_id), user), f"kaizen-{name}.pdf")
 
 
 # --------------------------------------------------------------------------- fixes
@@ -486,9 +489,9 @@ def decide(fix_id: int, body: DecisionIn, user: dict = Depends(require_user)):
         message = "Fix discarded. The vulnerability is still open."
     elif vuln["source"] == "demo":
         short = hashlib.sha1(f"{fix_id}:{vuln['id']}".encode()).hexdigest()[:7]
-        fix = store.decide_fix(fix_id, "committed", "fixed", branch=f"securefix/vuln-{vuln['id']}",
+        fix = store.decide_fix(fix_id, "committed", "fixed", branch=f"kaizen/vuln-{vuln['id']}",
                                commit_sha=short)
-        message = f"Committed as {short} on securefix/vuln-{vuln['id']}. The risk score is updated."
+        message = f"Committed as {short} on kaizen/vuln-{vuln['id']}. The risk score is updated."
     else:
         token = user_token(user)
         if not token:
@@ -571,7 +574,7 @@ def report_pdf(source: Source = "all", owners: str = Query("", max_length=4000),
     top = store.list_repos(ws, per_page=20, owners=picked)["items"]
     min_score = store.get_settings(user["login"])["min_score"]
     major = store.major(ws, min_score, per_page=25, per_repo=8, owners=picked)
-    return _pdf(pdf.render(title, data, top, major, user), "securefix-security-report.pdf")
+    return _pdf(pdf.render(title, data, top, major, user), "kaizen-security-report.pdf")
 
 
 # --------------------------------------------------------------------------- GitHub webhook

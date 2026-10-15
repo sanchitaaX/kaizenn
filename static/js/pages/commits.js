@@ -5,7 +5,7 @@
   const listEl = document.getElementById("commit-list");
   if (!listEl) return;
 
-  const SF = window.SecureFix;
+  const SF = window.Kaizen;
   const SVG_NS = "http://www.w3.org/2000/svg";
   const LABELS = { new: "New", safe: "Safe", fixed: "Fixed", attention: "Needs attention" };
   const STATE_TEXT = { new: "new", safe: "safe", fixed: "fixed", attention: "needing attention" };

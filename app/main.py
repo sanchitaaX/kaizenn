@@ -1,4 +1,4 @@
-"""SecureFix web app entry point.
+"""KAIZEN web app entry point.
 
 Run:  .venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
 """
@@ -6,10 +6,11 @@ Run:  .venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from app import agent_api, api, auth, fleet_api, pages
+from app import agent_api, api, auth, fleet_api, game_api, pages
 from app.config import settings
 
 
@@ -26,7 +27,7 @@ async def lifespan(_app):
     yield
 
 
-app = FastAPI(title="SecureFix", lifespan=lifespan)
+app = FastAPI(title="KAIZEN", lifespan=lifespan)
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret,
@@ -44,10 +45,17 @@ async def revalidate_static(request, call_next):
         response.headers["Cache-Control"] = "no-cache"
     return response
 
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return FileResponse("static/img/kaizen.svg", media_type="image/svg+xml")
+
+
 app.include_router(auth.router)
 app.include_router(api.router)
 app.include_router(fleet_api.router)
 app.include_router(fleet_api.hooks)
 app.include_router(agent_api.router)
+app.include_router(game_api.router)
 app.include_router(pages.router)
 

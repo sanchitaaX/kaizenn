@@ -71,11 +71,11 @@ def _run(login: str, token: str) -> None:
             except github.GitHubError as exc:
                 if exc.status_code in (403, 404):  # code scanning off, or no permission to read it
                     no_scanning += 1
-                    store.set_sync(login, message=f"Scanning {r['full_name']} with SecureFix's own scanners")
+                    store.set_sync(login, message=f"Scanning {r['full_name']} with KAIZEN's own scanners")
                     try:  # scan the code ourselves instead
                         store.save_github_repo(login, r, selfscan.scan(token, r), "scanned")
                     except Exception:
-                        log.exception("SecureFix scan of %s failed", r["full_name"])
+                        log.exception("KAIZEN scan of %s failed", r["full_name"])
                         store.save_github_repo(login, r, None, "no_code_scanning")
                 elif exc.status_code == 429:
                     store.set_sync(login, message="GitHub rate limit reached. Try again in a few minutes.")
@@ -86,7 +86,7 @@ def _run(login: str, token: str) -> None:
             store.set_sync(login, done=i, scanned=scanned, no_scanning=no_scanning, errors=errors)
         store.set_sync(login, status="done", finished_at=store.db.iso(store.db.now()),
                        message=f"Read {len(repos)} repositories: {scanned} with code scanning, "
-                               f"{no_scanning} scanned by SecureFix's own scanners.")
+                               f"{no_scanning} scanned by KAIZEN's own scanners.")
     except Exception as exc:  # the job must always end in a final state the page can show
         log.exception("GitHub scan failed for %s", login)
         msg = str(exc) if isinstance(exc, github.GitHubError) else "Something went wrong while reading GitHub."

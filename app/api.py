@@ -4,7 +4,7 @@ Chat-first product: GET /repos, GET /repos/{owner}/{name}/commits, POST /brief/e
 pull-request), GET /commits (team), GET /learning, POST /profile/modes and /profile/role.
 The older onboarding, dashboard and brief-page endpoints below them keep working but the screens no longer use them.
 
-Call them with SecureFix.api(path, {method, body: JSON.stringify(...)}) from static/js/app.js.
+Call them with Kaizen.api(path, {method, body: JSON.stringify(...)}) from static/js/app.js.
 Errors come back as {"detail": "<plain sentence>"} with a 4xx status.
 """
 
@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, 
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 
-from app import db, github
+from app import db, game, github
 from app.auth import require_user, user_token
 from app.config import settings
 from app.engine import analysis as chat
@@ -70,6 +70,7 @@ class ProfileIn(BaseModel):
     role: Role | None = None
     report_mode: bool | None = None
     learn_mode: bool | None = None
+    game_mode: bool | None = None
 
 
 class RuleIn(BaseModel):
@@ -192,7 +193,7 @@ def _open_pr(user: dict, repo: str, commit: dict) -> dict:
     if token and report.get("fix_branch"):
         info = db.get_repo(repo)
         bug = report.get("bug_type") or "security bug"
-        body = (f"SecureFix proved a {bug} in {commit['sha']} with a working attack, then verified this fix: "
+        body = (f"KAIZEN proved a {bug} in {commit['sha']} with a working attack, then verified this fix: "
                 f"the attack is blocked and the tests pass.\n\n{report.get('explanation') or ''}")
         try:
             pr = github.create_pull_request(token, repo, head=report["fix_branch"],
@@ -305,13 +306,16 @@ def update_profile(body: ProfileIn, user: dict = Depends(require_user)):
         fields["report_mode"] = body.report_mode
     if body.learn_mode is not None:
         fields["learn_mode"] = body.learn_mode
+    if body.game_mode is not None:  # Quests & rewards: not an answer mode, so the keep-one-on rule ignores it
+        fields["game_mode"] = body.game_mode
     report_mode = fields.get("report_mode", user["report_mode"])
     learn_mode = fields.get("learn_mode", user["learn_mode"])
     if not report_mode and not learn_mode:
         raise HTTPException(status_code=422, detail="Keep at least one mode on")
     saved = db.update_user(user["login"], **fields)
     # learn_mode / report_mode are repeated at the top level for the profile screen's toggles.
-    return {"user": saved, "learn_mode": saved["learn_mode"], "report_mode": saved["report_mode"]}
+    return {"user": saved, "learn_mode": saved["learn_mode"], "report_mode": saved["report_mode"],
+            "game_mode": saved["game_mode"]}
 
 
 class RoleIn(BaseModel):
@@ -442,6 +446,8 @@ def get_brief(user: dict = Depends(require_user)):
 def save_brief(body: BriefSave, user: dict = Depends(require_user)):
     repo = _repo_of(user)
     brief = db.save_brief(repo, body.summary.strip(), body.users.strip(), body.permissions.strip())
+    if brief["summary"]:
+        game.award_quietly(user["login"], "brief_saved", repo)
     out = {"brief": brief, "rules": db.list_rules(repo), "source": None}
     if body.generate:
         texts, source = generate_rules(brief)
@@ -552,7 +558,7 @@ class AskIn(BaseModel):
 
 
 ASK_SYSTEM = (
-    "You are SecureFix's assistant inside a security repair app. Answer the user's message helpfully and briefly "
+    "You are KAIZEN's assistant inside a security repair app. Answer the user's message helpfully and briefly "
     "(a few short paragraphs or a short list at most). You can explain vulnerabilities, fixes, the agent's verdicts "
     "(Verified: the exploit test failed before the patch and passes after it, and the existing tests still pass; "
     "Inconclusive: something could not be proven; Failed: the patch did not hold), and how to use the app: type a "
@@ -598,6 +604,7 @@ def chat_ask(body: AskIn, user: dict = Depends(require_user)):
     text = body.text.strip()
     if not text:
         raise HTTPException(status_code=422, detail="Type a message first.")
+    game.award_quietly(user["login"], "daily_chat", game.today())
     if not llm.is_configured():
         return {"reply": "The AI model is not set up on this server, so I can only run checks. Type a repository as "
                          "owner/name or paste its GitHub link to start one.", "live_ai": False}
@@ -667,6 +674,7 @@ def _analysis_view(a: dict) -> dict:
 @router.post("/analyses", status_code=202)
 def start_analysis(body: AnalysisIn, user: dict = Depends(require_user)):
     """Start checking one commit. Poll GET /api/analyses/{id} for the steps and the result."""
+    game.award_quietly(user["login"], "daily_chat", game.today())
     repo = body.repo.strip()
     sha = body.sha.strip()
     if not db.SHA_RE.match(sha):
@@ -744,6 +752,7 @@ def analysis_pull_request(analysis_id: int, user: dict = Depends(require_user)):
         raise HTTPException(status_code=404, detail="Commit not found.")
     pr = _open_pr(user, a["repo"], commit)
     db.set_analysis_pull_request(analysis_id, pr)
+    game.award_quietly(user["login"], "pr_opened", f"analysis-{analysis_id}")
     return pr
 
 
@@ -766,7 +775,7 @@ def analysis_report_pdf(analysis_id: int, refresh: bool = False, user: dict = De
         raise HTTPException(status_code=409, detail="The check is still running. Try again when it finishes.")
     data = tech_report.build(a, user, refresh=refresh)
     pdf = report_pdf.render(data)
-    name = f"securefix-{a['repo'].replace('/', '-')}-{a['sha'][:7]}.pdf"
+    name = f"kaizen-{a['repo'].replace('/', '-')}-{a['sha'][:7]}.pdf"
     return Response(pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
@@ -793,11 +802,11 @@ def analysis_decision(analysis_id: int, body: DecisionIn, user: dict = Depends(r
             # Real accounts: the fix lands as a pull request from the fix branch, so a person still reviews it.
             pr = _open_pr(user, a["repo"], commit)
             db.set_analysis_pull_request(analysis_id, pr)
-            decision.update(branch=f"securefix/fix-{short}", pull_request=pr)
+            decision.update(branch=f"kaizen/fix-{short}", pull_request=pr)
         else:
             # Demo: record the commit without touching GitHub.
             fake = hashlib.sha1(f"{a['repo']}:{a['sha']}:fix".encode()).hexdigest()[:7]
-            decision.update(branch=f"securefix/fix-{short}", commit_sha=fake)
+            decision.update(branch=f"kaizen/fix-{short}", commit_sha=fake)
     db.set_analysis_decision(analysis_id, decision)
     return decision
 

@@ -1,6 +1,6 @@
 // Shared helpers for every page.
 
-window.SecureFix = {
+window.Kaizen = {
   toast(message) {
     const el = document.getElementById("toast");
     if (!el) return;
@@ -92,8 +92,8 @@ document.addEventListener("click", (e) => {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !panel.hidden && !document.querySelector("dialog[open]")) { setOpen(false); launcher.focus(); }
   });
-  // Other scripts can open it: SecureFix.openChat()
-  window.SecureFix.openChat = (src) => {
+  // Other scripts can open it: Kaizen.openChat()
+  window.Kaizen.openChat = (src) => {
     if (src) frame.setAttribute("src", src);
     setOpen(true);
   };

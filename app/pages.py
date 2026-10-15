@@ -17,7 +17,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
-from app import db
+from app import db, game
 from app import fixtures as fx
 from app.auth import current_user, demo_allowed, github_configured, user_token
 
@@ -132,7 +132,8 @@ def profile(request: Request):
     if isinstance(user, RedirectResponse):
         return user
     return _render(request, "profile.html", {"request": request, "active": "profile", "user": user,
-                                             "github_connected": bool(user_token(user))})
+                                             "github_connected": bool(user_token(user)),
+                                             "game": game.state(user["login"])})
 
 
 # --------------------------------------------------------------------------- old routes

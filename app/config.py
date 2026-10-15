@@ -12,7 +12,7 @@ class Settings:
     github_client_id: str = os.getenv("GITHUB_CLIENT_ID", "")
     github_client_secret: str = os.getenv("GITHUB_CLIENT_SECRET", "")
     github_redirect_uri: str = os.getenv("GITHUB_REDIRECT_URI", "http://localhost:8000/auth/callback")
-    # OAuth scopes. "repo" lets SecureFix read private repos and open fix pull requests.
+    # OAuth scopes. "repo" lets KAIZEN read private repos and open fix pull requests.
     # Use "read:user public_repo" if you only work with public repos.
     github_scopes: str = os.getenv("GITHUB_SCOPES", "read:user repo security_events")
     session_secret: str = os.getenv("SESSION_SECRET") or secrets.token_urlsafe(32)

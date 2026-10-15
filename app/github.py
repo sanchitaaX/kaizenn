@@ -1,4 +1,4 @@
-"""Small GitHub REST client (OAuth App flow + the few endpoints SecureFix needs).
+"""Small GitHub REST client (OAuth App flow + the few endpoints KAIZEN needs).
 
 Tokens are passed in by the caller and never logged. All calls are synchronous httpx
 with short timeouts; errors are raised as GitHubError with a plain message.
@@ -29,7 +29,7 @@ def _client(token: str | None = None) -> httpx.Client:
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": API_VERSION,
-        "User-Agent": "SecureFix",
+        "User-Agent": "KAIZEN",
     }
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -75,7 +75,7 @@ def exchange_code(code: str) -> dict:
                 "code": code,
                 "redirect_uri": settings.github_redirect_uri,
             },
-            headers={"Accept": "application/json", "User-Agent": "SecureFix"},
+            headers={"Accept": "application/json", "User-Agent": "KAIZEN"},
             timeout=TIMEOUT,
         )
     except httpx.HTTPError as exc:
