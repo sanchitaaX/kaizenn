@@ -9,7 +9,8 @@
      data-analysis-id="{{ analysis_id or '' }}"
      data-name="{{ user.name or user.login or '' }}"
      data-learn="{{ 1 if user.learn_mode else 0 }}"
-     data-report="{{ 1 if user.report_mode else 0 }}">
+     data-report="{{ 1 if user.report_mode else 0 }}"
+     data-game="{{ 1 if user.game_mode else 0 }}">
 
   <aside class="chat-sidebar" id="sidebar" aria-label="Earlier checks">
     <button class="new-row" id="new-chat" type="button">
@@ -34,6 +35,7 @@
     </div>
 
     <form class="composer" id="composer" autocomplete="off">
+      {% if user.game_mode %}<div class="game-bar" id="game-bar" hidden></div>{% endif %}
       <div class="composer-box is-off" id="composer-box">
         <div class="composer-attachments" id="attachments" hidden></div>
         <textarea class="composer-input" id="input" rows="2" data-autogrow aria-label="Your message" placeholder="Ask KAIZEN to check a commit..." disabled></textarea>
@@ -55,4 +57,7 @@
 </div>
 {% endblock %}
 
-{% block scripts %}<script src="/static/js/pages/chat.js" defer></script>{% endblock %}
+{% block scripts %}
+{% if user.game_mode %}<script src="/static/js/pages/game.js" defer></script>{% endif %}
+<script src="/static/js/pages/chat.js" defer></script>
+{% endblock %}

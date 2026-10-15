@@ -144,3 +144,12 @@ def test_profile_lists_demo_rewards_when_on(demo):
     game.award(login, "run_verified", 1)  # 175 XP: level 2 reward
     html = demo.get("/profile").text
     assert "KZN-DEMO-UDMY-" in html and "DEMO — not redeemable" in html and "20% off on Udemy" in html
+
+
+def test_chat_loads_the_game_only_when_on(demo):
+    html = demo.get("/chat").text
+    assert 'data-game="0"' in html and "/static/js/pages/game.js" not in html and 'id="game-bar"' not in html
+    demo.post("/api/profile/modes", json={"game_mode": True})
+    html = demo.get("/chat").text
+    assert 'data-game="1"' in html and "/static/js/pages/game.js" in html and 'id="game-bar"' in html
+    assert demo.get("/static/js/pages/game.js").status_code == 200
