@@ -318,6 +318,20 @@ class RoleIn(BaseModel):
     role: str = ""
 
 
+@router.post("/profile/clear-history")
+def clear_history(user: dict = Depends(require_user)):
+    """Delete all of this user's chats and follow-up messages."""
+    return {"removed": db.clear_history(user["login"])}
+
+
+@router.post("/profile/delete-data")
+def delete_data(request: Request, user: dict = Depends(require_user)):
+    """Delete everything stored for this user, then sign them out."""
+    db.delete_user_data(user["login"])
+    request.session.clear()
+    return {"ok": True, "redirect": "/login"}
+
+
 @router.post("/profile/role")
 def update_role(body: RoleIn, user: dict = Depends(require_user)):
     """Switch between student and professional. The modes follow the role's defaults

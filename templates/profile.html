@@ -83,6 +83,24 @@
     <p class="muted pf-empty">None yet. Pick a repository in the <a href="/chat">chat</a> to start.</p>
     {% endif %}
   </section>
+
+  <section class="pf-section" aria-labelledby="pf-data-title">
+    <h2 class="pf-heading" id="pf-data-title">Your data</h2>
+    <div class="pf-data-row">
+      <div class="row-main">
+        <span class="row-title">Clear chat history</span>
+        <span class="row-meta">Deletes all your checks, results and follow-up questions. Reports can no longer be downloaded.</span>
+      </div>
+      <button class="btn btn-secondary btn-sm" type="button" id="clear-history">Clear history</button>
+    </div>
+    <div class="pf-data-row">
+      <div class="row-main">
+        <span class="row-title">Delete all my data</span>
+        <span class="row-meta">Deletes your chats, saved repositories, GitHub connection and profile, then signs you out. Your team's shared commit list stays.</span>
+      </div>
+      <button class="btn btn-secondary btn-sm pf-danger" type="button" id="delete-data">Delete my data</button>
+    </div>
+  </section>
 </div>
 {% endblock %}
 

@@ -708,3 +708,26 @@ def test_report_for_a_safe_commit_and_access_rules(demo, client):
     wait_done(demo, aid)
     assert demo.get(f"/api/analyses/{aid}/report.pdf").status_code == 200
     assert demo.get("/api/analyses/99999/report").status_code == 404
+
+
+# --------------------------------------------------------------------------- clearing data
+
+
+def test_clear_history_removes_only_this_users_chats(demo):
+    aid = start(demo, "e41b9d2")
+    wait_done(demo, aid)
+    assert demo.get("/api/analyses").json()["analyses"]
+    r = demo.post("/api/profile/clear-history")
+    assert r.status_code == 200 and r.json()["removed"] >= 1
+    assert demo.get("/api/analyses").json()["analyses"] == []
+    assert demo.get(f"/api/analyses/{aid}").status_code == 404
+    # The team's commit list is shared data and stays.
+    assert demo.get("/api/commits").json()["commits"]
+
+
+def test_delete_data_signs_out_and_removes_the_profile(demo):
+    wait_done(demo, start(demo, "c7f0a13"))
+    r = demo.post("/api/profile/delete-data")
+    assert r.status_code == 200 and r.json()["redirect"] == "/login"
+    assert demo.get("/api/analyses").status_code == 401
+    assert db.get_user(fixtures.USER["login"]) is None

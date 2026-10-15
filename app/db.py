@@ -1034,3 +1034,27 @@ def authored_mistakes(login: str, repos: list[str]) -> list[dict]:
         item["count"] += 1
     ordered = sorted(out.values(), key=lambda m: m["last_at"] or "", reverse=True)
     return sorted(ordered, key=lambda m: -m["count"])  # stable: ties stay newest first
+
+
+# --------------------------------------------------------------------------- clearing a user's data
+
+
+def clear_history(login: str) -> int:
+    """Delete this user's chats (analyses and their messages). Returns how many chats were removed."""
+    with tx() as conn:
+        ids = [r["id"] for r in conn.execute("SELECT id FROM analyses WHERE login = ?", (login,))]
+        if ids:
+            marks = ",".join("?" * len(ids))
+            conn.execute(f"DELETE FROM analysis_messages WHERE analysis_id IN ({marks})", ids)
+            conn.execute(f"DELETE FROM analyses WHERE id IN ({marks})", ids)
+    return len(ids)
+
+
+def delete_user_data(login: str) -> None:
+    """Delete everything SecureFix stores for this user: chats, repository list, GitHub token and profile.
+    Shared repository data (team commits and their reports) stays, because it belongs to the whole team."""
+    clear_history(login)
+    with tx() as conn:
+        conn.execute("DELETE FROM user_repos WHERE login = ?", (login,))
+        conn.execute("DELETE FROM tokens WHERE login = ?", (login,))
+        conn.execute("DELETE FROM users WHERE login = ?", (login,))

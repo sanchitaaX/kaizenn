@@ -66,4 +66,31 @@
       }
     });
   });
+
+  // Your data: clear history, or delete everything and sign out.
+  const clearBtn = document.getElementById("clear-history");
+  const deleteBtn = document.getElementById("delete-data");
+  if (clearBtn) clearBtn.addEventListener("click", async () => {
+    if (!window.confirm("Delete all your chats, results and follow-up questions? This cannot be undone.")) return;
+    clearBtn.disabled = true;
+    try {
+      const data = await window.SecureFix.api("/api/profile/clear-history", { method: "POST" });
+      window.SecureFix.toast(data.removed ? "Chat history cleared" : "There was no history to clear");
+    } catch (err) {
+      window.SecureFix.toast(err.message || "Could not clear your history. Try again.");
+    } finally {
+      clearBtn.disabled = false;
+    }
+  });
+  if (deleteBtn) deleteBtn.addEventListener("click", async () => {
+    if (!window.confirm("Delete all your SecureFix data and sign out? This cannot be undone.")) return;
+    deleteBtn.disabled = true;
+    try {
+      const data = await window.SecureFix.api("/api/profile/delete-data", { method: "POST" });
+      location.href = (data && data.redirect) || "/login";
+    } catch (err) {
+      deleteBtn.disabled = false;
+      window.SecureFix.toast(err.message || "Could not delete your data. Try again.");
+    }
+  });
 })();
