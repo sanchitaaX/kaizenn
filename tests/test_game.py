@@ -242,3 +242,25 @@ def test_chat_and_brief_award_xp_only_when_on(demo):
     demo.put("/api/brief", json={"summary": "A shop", "users": "buyers", "permissions": "admins refund"})
     kinds = sorted(e["kind"] for e in demo.get("/api/game").json()["recent"])
     assert kinds == ["brief_saved", "daily_chat", "quest"]  # quest = Brief writer
+
+
+def test_committing_demo_fixes_awards_xp_once_per_fix(demo):
+    repos = demo.get("/api/fleet/repos?source=demo&min_score=0").json()["items"]
+    first, second = repos[0], repos[1]
+    fixes = demo.post(f"/api/fleet/repos/{first['id']}/fix-all").json()["fixes"]
+    ids = [f["fix_id"] for f in fixes]
+    demo.post(f"/api/fleet/repos/{first['id']}/commit-all", json={"fix_ids": ids[:1]})
+    assert demo.get("/api/game").json()["enabled"] is False  # nothing counted while off
+    demo.post("/api/profile/modes", json={"game_mode": True})
+    assert demo.get("/api/game").json()["xp"] == 0
+    demo.post(f"/api/fleet/repos/{first['id']}/commit-all", json={"fix_ids": ids})
+    state = demo.get("/api/game").json()
+    per_fix = [e for e in state["recent"] if e["kind"] == "fix_committed"]
+    assert len(per_fix) == len(ids) - 1  # the fix committed while off earns nothing later
+    assert next(q for q in state["quests"] if q["key"] == "ship_it")["done"] is True
+    # One Commit on the dashboard counts the same way, and never twice.
+    fix = demo.post(f"/api/fleet/repos/{second['id']}/fix-all").json()["fixes"][0]
+    demo.post(f"/api/fleet/fixes/{fix['fix_id']}/decision", json={"action": "commit"})
+    demo.post(f"/api/fleet/repos/{second['id']}/commit-all", json={"fix_ids": [fix["fix_id"]]})
+    after = demo.get("/api/game").json()
+    assert after["xp"] == state["xp"] + game.POINTS["fix_committed"]

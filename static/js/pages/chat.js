@@ -1520,6 +1520,7 @@
         actions.replaceChildren(h("div", "agent-verdict is-verified", [h("strong", null, "Committed"), h("span", null, out.message)]));
         remember({ done: out.message });
         notifyDashboard();
+        if (GAME) GAME.refresh();
       } catch (err) { SF.toast(calm(err, "The fixes could not be committed.")); commit.disabled = false; }
     }, "check");
     const review = h("a", "btn btn-secondary btn-sm", "Review them on the dashboard");

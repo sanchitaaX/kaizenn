@@ -84,8 +84,16 @@
       if (!next.enabled) return state;
       const newest = next.recent.length ? next.recent[0].id : 0;
       if (prev && prev.enabled && seen != null) {
-        next.recent.filter((e) => e.id > seen).reverse()
-          .forEach((e, i) => setTimeout(() => K.toast("+" + e.points + " XP · " + e.reason), i * 2800));
+        // One toast per kind of event, so committing 20 fixes at once says "+200 XP" once instead of 20 times.
+        const groups = new Map();
+        next.recent.filter((e) => e.id > seen).reverse().forEach((e) => {
+          const g = groups.get(e.reason) || { reason: e.reason, points: 0, n: 0 };
+          g.points += e.points;
+          g.n += 1;
+          groups.set(e.reason, g);
+        });
+        [...groups.values()].forEach((g, i) => setTimeout(() =>
+          K.toast("+" + g.points + " XP · " + g.reason + (g.n > 1 ? " ×" + g.n : "")), i * 2800));
         const had = new Set(prev.rewards.map((r) => r.level));
         next.rewards.filter((r) => !had.has(r.level)).forEach((r) => post(rewardCard(r)));
       }

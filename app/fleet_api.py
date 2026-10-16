@@ -394,6 +394,7 @@ def commit_all(repo_id: int, body: CommitAllIn, user: dict = Depends(require_use
             continue
         short = hashlib.sha1(f"{fix_id}:{vuln['id']}".encode()).hexdigest()[:7]
         store.decide_fix(fix_id, "committed", "fixed", branch=f"kaizen/vuln-{vuln['id']}", commit_sha=short)
+        game.award_quietly(user["login"], "fix_committed", f"fix-{fix_id}")
         committed.append({"fix_id": fix_id, "commit_sha": short, "title": vuln["title"]})
     repo = store.get_repo(repo_id, _workspaces(user))["repo"]
     return {"committed": committed, "repo": {k: repo[k] for k in ("id", "risk_score", "band", "band_label", "open_total")},
@@ -492,6 +493,7 @@ def decide(fix_id: int, body: DecisionIn, user: dict = Depends(require_user)):
         fix = store.decide_fix(fix_id, "committed", "fixed", branch=f"kaizen/vuln-{vuln['id']}",
                                commit_sha=short)
         message = f"Committed as {short} on kaizen/vuln-{vuln['id']}. The risk score is updated."
+        game.award_quietly(user["login"], "fix_committed", f"fix-{fix_id}")
     else:
         token = user_token(user)
         if not token:

@@ -16,10 +16,12 @@ from app.config import settings
 
 log = logging.getLogger(__name__)
 
-POINTS = {"run_verified": 100, "run_clean": 20, "pr_opened": 50, "brief_saved": 40, "daily_chat": 10}
+POINTS = {"run_verified": 100, "run_clean": 20, "pr_opened": 50, "brief_saved": 40, "daily_chat": 10,
+          "fix_committed": 10}
 QUIZ_RIGHT, QUIZ_WRONG = 30, 5
 REASONS = {"run_verified": "Bug proven and fixed", "run_clean": "Clean check", "pr_opened": "Pull request opened",
-           "brief_saved": "Project brief saved", "daily_chat": "First chat today"}
+           "brief_saved": "Project brief saved", "daily_chat": "First chat today",
+           "fix_committed": "Fix committed"}
 LEVELS = [(1, "Novice", 0), (2, "Apprentice", 100), (3, "Practitioner", 250), (4, "Defender", 450),
           (5, "Sensei", 700), (6, "Master", 1000)]
 # kinds: the event kinds that count toward the goal ("quiz_right" = a quiz answered correctly)
@@ -28,7 +30,7 @@ QUESTS = [
     {"key": "bug_hunter", "name": "Bug hunter", "goal": "Prove and fix a bug", "kinds": ("run_verified",), "target": 1, "bonus": 50},
     {"key": "sharp_eye", "name": "Sharp eye", "goal": "Guess the bug right 3 times", "kinds": ("quiz_right",), "target": 3, "bonus": 50},
     {"key": "brief_writer", "name": "Brief writer", "goal": "Save a project brief", "kinds": ("brief_saved",), "target": 1, "bonus": 25},
-    {"key": "ship_it", "name": "Ship it", "goal": "Open a pull request with a fix", "kinds": ("pr_opened",), "target": 1, "bonus": 50},
+    {"key": "ship_it", "name": "Ship it", "goal": "Commit a fix or open a pull request", "kinds": ("pr_opened", "fix_committed"), "target": 1, "bonus": 50},
     {"key": "daily_dojo", "name": "Daily dojo", "goal": "Chat on 3 different days", "kinds": ("daily_chat",), "target": 3, "bonus": 40},
 ]
 PLATFORMS = [("Udemy", "UDMY"), ("Coursera", "CRSA"), ("Pluralsight", "PLSI"), ("TryHackMe", "THMX"), ("edX", "EDXX")]
@@ -200,7 +202,7 @@ def state(login: str) -> dict:
                     "label": DEMO_LABEL}
                    for r in conn.execute("SELECT * FROM rewards WHERE login = ? ORDER BY level", (login,))]
         recent = [{"id": r["id"], **_event(r["kind"], r["ref"], r["points"]), "created_at": r["created_at"]}
-                  for r in conn.execute("SELECT * FROM xp_events WHERE login = ? ORDER BY id DESC LIMIT 5", (login,))]
+                  for r in conn.execute("SELECT * FROM xp_events WHERE login = ? ORDER BY id DESC LIMIT 100", (login,))]
     quests = [{"key": q["key"], "name": q["name"], "goal": q["goal"], "bonus": q["bonus"], "target": q["target"],
                "progress": min(q["target"], sum(counts.get(k, 0) for k in q["kinds"])), "done": q["key"] in done}
               for q in QUESTS]
