@@ -573,3 +573,10 @@ def test_sql_built_from_placeholder_pieces_is_not_flagged():
                    "pool.query(`SELECT * FROM t ${joinClause} WHERE name = '${name}'`);\n",
                    "pool.query(`SELECT * FROM t ORDER BY ${orderId}`);\n"):
         assert [h["type"] for h in rules.scan_text("routes/a.js", unsafe)] == ["SQL_INJECTION"], unsafe
+
+
+def test_quiz_is_kept_only_for_a_finding_that_got_fixed(monkeypatch):
+    fixed = fast_run(monkeypatch, FastScript(not_exploitable={"shop/db.py"}))["result"]
+    assert fixed["quiz_seed"]["file"] in {"shop/files.py", "shop/tools.py"}  # never the finding that was cleared
+    none = fast_run(monkeypatch, FastScript(not_exploitable={"shop/db.py", "shop/files.py", "shop/tools.py"}))
+    assert none["verdict"] == "none_found" and "quiz_seed" not in none["result"]

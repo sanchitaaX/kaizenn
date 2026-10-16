@@ -1,6 +1,6 @@
 // KAIZEN quests and rewards in the chat. Loaded only when the user switched on Quests & rewards on the Profile.
 // Draws a level bar above the composer, "+N XP" toasts for new events, a quest checklist, reward cards with
-// DEMO coupon codes, and the "Guess the bug" quiz while the agent works. The server owns every number.
+// DEMO coupon codes, and the "Guess the bug" quiz after the user acts on a fix. The server owns every number.
 
 (function () {
   "use strict";
@@ -125,60 +125,55 @@
         a.points ? el("span", "quiz-gain", "+" + a.points + " XP for trying") : null]);
     }
 
-    // Resolves when the user answered or skipped, so the chat can then show the agent's result.
-    // null when "Guess the bug" is switched off on the Quests page.
-    function quiz(runId, stepsEl) {
-      if (state && state.prefs && state.prefs.quiz === false) return null;
-      return new Promise((resolve) => {
-        let finished = false;
-        const finish = () => {
-          if (finished) return;
-          finished = true;
-          stepsEl.classList.remove("is-spoiler");
-          resolve();
-          refresh();
-        };
-        K.api("/api/game/quiz/" + runId).then((q) => {
-          if (q.answered) { finish(); return; }
-          stepsEl.classList.add("is-spoiler");
-          const card = el("div", "quiz");
-          const status = el("div", "quiz-status", [el("span", "quiz-pulse"), "The agent's answer stays hidden until you pick"]);
-          const skip = btn("Skip this one", "quiz-skip", () => { card.classList.add("is-skipped"); status.replaceChildren("Skipped. Here is what the agent found."); skip.remove(); finish(); });
-          const choices = el("div", "quiz-choices", q.choices.map((c, i) => {
-            const b = btn([el("span", "quiz-letter", "ABCD"[i]), el("span", "quiz-label", c.label), el("span", "quiz-mark")], "quiz-choice", async () => {
-              choices.querySelectorAll("button").forEach((x) => { x.disabled = true; });
-              b.classList.add("is-picked");
-              skip.remove();
-              try {
-                const a = await K.api("/api/game/quiz/" + runId, { method: "POST", body: { choice: c.key } });
-                choices.querySelectorAll("button").forEach((x) => {
-                  if (x.dataset.key === a.answer) x.classList.add("is-right");
-                  else if (x === b) x.classList.add("is-wrong");
-                  else x.classList.add("is-out");
-                });
-                card.classList.add(a.correct ? "is-won" : "is-lost");
-                status.replaceChildren(result(a));
-              } catch (err) {
-                status.replaceChildren(err.message || "Could not check that answer.");
-              }
-              finish();
-            });
-            b.dataset.key = c.key;
-            return b;
-          }));
-          card.append(
-            el("div", "quiz-head", [
-              el("span", "quiz-icon", "?"),
-              el("div", "quiz-titles", [el("p", "quiz-title", "Guess the bug"), el("p", "quiz-sub", "Race the agent: what is wrong with this code?")]),
-              el("span", "quiz-xp", "+" + 30 + " XP"),
-            ]),
-            codeView(q),
-            choices,
-            el("div", "quiz-foot", [status, skip]),
-          );
-          post(card);
-        }).catch(finish);
-      });
+    // "Guess the bug", asked once the user has acted on a fix (committed, opened a pull request or set it aside).
+    // target: { run: id } for an agent run, or { vuln: id } for a dashboard problem. Never blocks the chat.
+    function quiz(target) {
+      if (!target || (state && state.prefs && state.prefs.quiz === false)) return;
+      const url = target.vuln ? "/api/game/quiz/vuln/" + target.vuln : "/api/game/quiz/" + target.run;
+      K.api(url).then((q) => {
+        if (q.answered) return;
+        const card = el("div", "quiz");
+        const status = el("div", "quiz-status", [el("span", "quiz-pulse"), "Bonus round: one guess"]);
+        const skip = btn("Skip this one", "quiz-skip", () => {
+          card.classList.add("is-skipped");
+          status.replaceChildren("Skipped.");
+          skip.remove();
+        });
+        const choices = el("div", "quiz-choices", q.choices.map((c, i) => {
+          const b = btn([el("span", "quiz-letter", "ABCD"[i]), el("span", "quiz-label", c.label), el("span", "quiz-mark")], "quiz-choice", async () => {
+            choices.querySelectorAll("button").forEach((x) => { x.disabled = true; });
+            b.classList.add("is-picked");
+            skip.remove();
+            try {
+              const a = await K.api(url, { method: "POST", body: { choice: c.key } });
+              choices.querySelectorAll("button").forEach((x) => {
+                if (x.dataset.key === a.answer) x.classList.add("is-right");
+                else if (x === b) x.classList.add("is-wrong");
+                else x.classList.add("is-out");
+              });
+              card.classList.add(a.correct ? "is-won" : "is-lost");
+              status.replaceChildren(result(a));
+            } catch (err) {
+              status.replaceChildren(err.message || "Could not check that answer.");
+            }
+            refresh();
+          });
+          b.dataset.key = c.key;
+          return b;
+        }));
+        card.append(
+          el("div", "quiz-head", [
+            el("span", "quiz-icon", "?"),
+            el("div", "quiz-titles", [el("p", "quiz-title", "Guess the bug"),
+              el("p", "quiz-sub", "This is the code before the fix. What kind of bug was it?")]),
+            el("span", "quiz-xp", "+30 XP"),
+          ]),
+          codeView(q),
+          choices,
+          el("div", "quiz-foot", [status, skip]),
+        );
+        post(card);
+      }).catch(() => { /* no quiz for this one */ });
     }
 
     return { refresh, quiz };

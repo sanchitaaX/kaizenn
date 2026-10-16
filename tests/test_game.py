@@ -308,3 +308,21 @@ def test_quests_activity_folds_repeated_events():
     events = [{"reason": "Fix committed", "points": 10, "created_at": ts}] * 3 + [{"reason": "Clean check", "points": 20, "created_at": ts}]
     rows = _activity(events)
     assert [(r["reason"], r["points"], r["count"]) for r in rows] == [("Fix committed", 30, 3), ("Clean check", 20, 1)]
+
+
+def test_quiz_for_a_dashboard_problem_after_fix_all(demo):
+    repo = demo.get("/api/fleet/repos?source=demo&min_score=0").json()["items"][0]
+    fixes = demo.post(f"/api/fleet/repos/{repo['id']}/fix-all").json()["fixes"]
+    vuln = fixes[0]["vuln"]
+    assert demo.get(f"/api/game/quiz/vuln/{vuln['id']}").status_code == 409  # off
+    demo.post("/api/profile/modes", json={"game_mode": True})
+    q = demo.get(f"/api/game/quiz/vuln/{vuln['id']}").json()
+    assert q["answered"] is None and len(q["choices"]) == 4 and q["file"] == vuln["file"]
+    assert q["first_line"] <= q["line"] < q["first_line"] + len(q["snippet"].splitlines())
+    answer = next(c["key"] for c in q["choices"] if c["label"] == vuln["title"]) if any(
+        c["label"] == vuln["title"] for c in q["choices"]) else q["choices"][0]["key"]
+    first = demo.post(f"/api/game/quiz/vuln/{vuln['id']}", json={"choice": answer}).json()
+    again = demo.post(f"/api/game/quiz/vuln/{vuln['id']}", json={"choice": answer}).json()
+    assert first["already"] is False and again["already"] is True and again["points"] == 0
+    assert demo.get(f"/api/game/quiz/vuln/{vuln['id']}").json()["answered"]["correct"] == first["correct"]
+    assert demo.get("/api/game/quiz/vuln/999999").status_code == 404

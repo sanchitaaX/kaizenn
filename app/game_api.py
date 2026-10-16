@@ -54,6 +54,35 @@ def _seed_or_error(run_id: int, user: dict) -> dict:
     return seed
 
 
+def _vuln_seed_or_error(vuln_id: int, user: dict) -> dict:
+    """The quiz for a dashboard problem whose fix the user just committed or set aside (demo Fix all)."""
+    from app.fleet import store
+    from app.fleet_api import _workspaces
+
+    if not game.enabled(user["login"]):
+        raise HTTPException(status_code=409, detail="Turn on Quests & rewards on your Profile first.")
+    vuln = store.get_vuln(vuln_id, _workspaces(user))
+    fix = store.latest_fix(vuln_id) if vuln else None
+    seed = game.quiz_seed_from_fix(vuln, fix) if fix else None
+    if not seed:
+        raise HTTPException(status_code=404, detail="There is no quiz for this problem.")
+    return seed
+
+
+@router.get("/quiz/vuln/{vuln_id}")
+def vuln_quiz(vuln_id: int, user: dict = Depends(require_user)):
+    seed = _vuln_seed_or_error(vuln_id, user)
+    return {**game.quiz_question(f"v{vuln_id}", seed), "answered": game.quiz_result(user["login"], f"v{vuln_id}", seed)}
+
+
+@router.post("/quiz/vuln/{vuln_id}")
+def vuln_answer(vuln_id: int, body: QuizIn, user: dict = Depends(require_user)):
+    seed = _vuln_seed_or_error(vuln_id, user)
+    if body.choice not in rules.TYPES:
+        raise HTTPException(status_code=422, detail="Pick one of the choices.")
+    return game.answer_quiz(user["login"], f"v{vuln_id}", seed, body.choice)
+
+
 @router.get("/quiz/{run_id}")
 def quiz(run_id: int, user: dict = Depends(require_user)):
     seed = _seed_or_error(run_id, user)

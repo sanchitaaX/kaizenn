@@ -274,28 +274,41 @@ def quiz_seed(finding: dict, source: str) -> dict | None:
     return {"type": kind, "file": finding.get("file") or "", "line": line, "first_line": lo + 1, "snippet": snippet}
 
 
-def quiz_question(run_id: int, seed: dict) -> dict:
-    """Four choices (the answer and three others), in an order that is stable for this run. No answer inside."""
+def quiz_seed_from_fix(vuln: dict, fix: dict) -> dict | None:
+    """The quiz for a dashboard problem, from the code its fix replaced (old_code starts at fix["start_line"])."""
+    first = int(fix.get("start_line") or 1)
+    lines = (fix.get("old_code") or "").splitlines()
+    at = min(max(int(vuln.get("line") or first) - first, 0), max(len(lines) - 1, 0))
+    if not lines:
+        return None
+    # Blank lines in front put the old code at its real line numbers, which quiz_seed counts in.
+    return quiz_seed({"type": vuln.get("type"), "file": vuln.get("file"), "line": first + at},
+                     "\n" * (first - 1) + "\n".join(lines))
+
+
+def quiz_question(key, seed: dict) -> dict:
+    """Four choices (the answer and three others), in an order that is stable for this quiz. No answer inside.
+    key: the run id, or "v<id>" for a dashboard problem."""
     others = sorted(k for k in rules.TYPES if k != seed["type"])
-    start = int(hashlib.sha256(str(run_id).encode()).hexdigest(), 16) % len(others)
+    start = int(hashlib.sha256(str(key).encode()).hexdigest(), 16) % len(others)
     picked = [others[(start + 5 * j) % len(others)] for j in range(3)]  # step 5 is coprime with 12: all distinct
-    keys = sorted(picked + [seed["type"]], key=lambda k: hashlib.sha256(f"{run_id}:{k}".encode()).hexdigest())
-    return {"run_id": run_id, "file": seed["file"], "line": seed["line"], "first_line": seed["first_line"],
+    keys = sorted(picked + [seed["type"]], key=lambda k: hashlib.sha256(f"{key}:{k}".encode()).hexdigest())
+    return {"key": str(key), "file": seed["file"], "line": seed["line"], "first_line": seed["first_line"],
             "snippet": seed["snippet"], "choices": [{"key": k, "label": rules.TYPES[k][0]} for k in keys]}
 
 
-def quiz_result(login: str, run_id: int, seed: dict) -> dict | None:
-    """The answer already given for this run, or None."""
+def quiz_result(login: str, key, seed: dict) -> dict | None:
+    """The answer already given for this quiz, or None."""
     with _tx() as conn:
         row = conn.execute("SELECT points FROM xp_events WHERE login = ? AND kind = 'quiz' AND ref = ?",
-                           (login, str(run_id))).fetchone()
+                           (login, str(key))).fetchone()
     if not row:
         return None
     return {"correct": row["points"] == QUIZ_RIGHT, "answer": seed["type"], "answer_label": rules.TYPES[seed["type"]][0],
             "points": 0, "already": True}
 
 
-def answer_quiz(login: str, run_id: int, seed: dict, choice: str) -> dict:
+def answer_quiz(login: str, run_id, seed: dict, choice: str) -> dict:
     if not enabled(login):
         raise GameOff()
     previous = quiz_result(login, run_id, seed)

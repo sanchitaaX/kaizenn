@@ -519,6 +519,13 @@ def get_fix(fix_id: int) -> dict | None:
         return _fix_dict(conn.execute("SELECT * FROM fleet_fixes WHERE id = ?", (fix_id,)).fetchone())
 
 
+def latest_fix(vuln_id: int) -> dict | None:
+    """The newest fix written for a problem, whatever happened to it since."""
+    with _tx() as conn:
+        row = conn.execute("SELECT * FROM fleet_fixes WHERE vuln_id = ? ORDER BY id DESC LIMIT 1", (vuln_id,)).fetchone()
+    return dict(row) if row else None
+
+
 def dismiss_vulns(full_name: str, vuln_ids: list[int]) -> int:
     """The agent read these open problems of one repository and found them not exploitable: they stop counting."""
     if not vuln_ids:

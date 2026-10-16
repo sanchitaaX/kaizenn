@@ -1531,8 +1531,11 @@
     }
 
     const actions = h("div", "agent-actions");
+    // "Guess the bug" on the riskiest of these problems, once the user has committed the fixes or set them aside.
+    const askQuiz = () => { if (GAME) GAME.quiz({ vuln: res.fixes[0].vuln.id }); };
     const commit = button(`Commit all ${n} fix${n === 1 ? "" : "es"}`, "btn btn-primary btn-sm", async () => {
       commit.disabled = true;
+      later.disabled = true;
       try {
         const out = await SF.api(`/api/fleet/repos/${repoId}/commit-all`, { method: "POST",
           body: { fix_ids: res.fixes.map((f) => f.fix_id) } });
@@ -1540,11 +1543,18 @@
         remember({ done: out.message });
         notifyDashboard();
         if (GAME) GAME.refresh();
-      } catch (err) { SF.toast(calm(err, "The fixes could not be committed.")); commit.disabled = false; }
+        askQuiz();
+      } catch (err) { SF.toast(calm(err, "The fixes could not be committed.")); commit.disabled = false; later.disabled = false; }
     }, "check");
-    const review = h("a", "btn btn-secondary btn-sm", "Review them on the dashboard");
+    const later = button("Not now", "btn btn-secondary btn-sm", () => {
+      const note = "Not committed. The fixes are kept as drafts: review or commit them on the dashboard whenever you like.";
+      actions.replaceChildren(h("p", "agent-note", note));
+      remember({ done: note });
+      askQuiz();
+    });
+    const review = h("a", "btn btn-ghost btn-sm", "Review them on the dashboard");
     review.href = "/dashboard?repo=" + repoId;
-    actions.append(commit, review);
+    actions.append(commit, later, review);
     assistant([
       h("div", "agent-verdict is-verified", [h("strong", null, `${n} fix${n === 1 ? "" : "es"} ready`),
         h("span", null, "Each one is shown below. Commit them all at once, or review them one by one on the dashboard.")]),
@@ -1669,7 +1679,7 @@
     const steps = h("ol", "agent-steps");
     const msg = assistant([head, steps]);
     scrollEnd();
-    let fails = 0; let quiz = null;
+    let fails = 0;
     const tick = async () => {
       if (run !== S.run) return;
       let d;
@@ -1682,17 +1692,12 @@
       head.lastChild.textContent = d.repo + (d.result.workspace ? " @ " + d.result.workspace.sha.slice(0, 7) : "");
       setRepoChip({ full_name: d.repo });
       renderSteps(steps, d.steps);
-      if (GAME && d.result.quiz_ready && !quiz) quiz = GAME.quiz(id, steps);
       if (d.status === "running") { S.pollTimer = setTimeout(tick, 1500); return; }
       S.agentRun = d.id;
-      const reveal = () => {
-        if (run !== S.run) return;
-        renderAgentResult(d);
-        afterAgent();
-        if (GAME) GAME.refresh();
-        if (onDone) onDone(d);
-      };
-      if (quiz) quiz.then(reveal); else reveal();
+      renderAgentResult(d);
+      afterAgent();
+      if (GAME) GAME.refresh();
+      if (onDone) onDone(d);
     };
     tick();
   }
@@ -1775,23 +1780,39 @@
       pdf.href = "/api/agent/runs/" + d.id + "/report.pdf";
       pdf.setAttribute("download", "");
       actions.append(pdf);
+      // "Guess the bug" comes once the user has acted on the fix: pull request opened, or the fix set aside.
+      const askQuiz = () => { if (GAME && r.quiz_ready) GAME.quiz({ run: d.id }); };
       if (r.pull_request && safeUrl(r.pull_request.url)) {
         const a = h("a", "btn btn-primary btn-sm", ["View pull request", svg("external", 14)]);
         a.href = r.pull_request.url; a.target = "_blank"; a.rel = "noopener noreferrer";
         actions.prepend(a);
+        setTimeout(askQuiz, 0);
       } else if (patch.diff && (r.verdict === "verified" || r.verdict === "inconclusive")) {
         const many = (r.fixes || []).filter((x) => x.verdict !== "failed").length;
         const pr = button(many > 1 ? `Commit all ${many} fixes (pull request)` : "Open pull request", "btn btn-primary btn-sm", async () => {
           pr.disabled = true;
+          discard.disabled = true;
           try {
             const out = await SF.api("/api/agent/runs/" + d.id + "/pull-request", { method: "POST" });
             const a = h("a", "btn btn-primary btn-sm", ["View pull request", svg("external", 14)]);
             a.href = out.url; a.target = "_blank"; a.rel = "noopener noreferrer";
             pr.replaceWith(a);
+            discard.remove();
+            notifyDashboard();
             if (GAME) GAME.refresh();
-          } catch (err) { SF.toast(calm(err, "GitHub did not accept the pull request.")); pr.disabled = false; }
+            askQuiz();
+          } catch (err) {
+            SF.toast(calm(err, "GitHub did not accept the pull request."));
+            pr.disabled = false;
+            discard.disabled = false;
+          }
         });
-        actions.prepend(pr);
+        const discard = button("Discard", "btn btn-secondary btn-sm", () => {
+          pr.remove();
+          discard.replaceWith(h("span", "agent-note", "Discarded. Nothing was sent to GitHub, and the problems stay open on the dashboard."));
+          askQuiz();
+        }, "x");
+        actions.prepend(pr, discard);
       }
     }
     kids.push(actions);

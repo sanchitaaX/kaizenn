@@ -247,14 +247,14 @@ def execute(run_id: int, token: str | None, target: dict | list | None = None, l
             run.step("discover", "done", f"{len(findings)} {'candidates' if fast_mode else 'confirmed'} · top: {findings[0]['title']} in "
                                          f"{findings[0]['file']}:{findings[0]['line']}")
 
-        top = findings[0]
-        try:
-            seed = game.quiz_seed(top, ws.read(top["file"]) if ws.exists(top["file"]) else "")
-        except Exception:
-            log.exception("Could not build the quiz for run %s", run_id)
-            seed = None
-        if seed:
-            res["quiz_seed"] = seed  # "Guess the bug" in the chat; the run view never sends it
+        # "Guess the bug" for the chat, read now while the code is untouched. Only the quiz for a finding that ends
+        # up fixed is kept (below), and the chat asks it after the user acts on the fix. The run view never sends it.
+        seeds = {}
+        for f in findings[:MAX_FINDINGS_TRIED * 2]:
+            try:
+                seeds[(f["file"], f["line"])] = game.quiz_seed(f, ws.read(f["file"]) if ws.exists(f["file"]) else "")
+            except Exception:
+                log.exception("Could not build the quiz for run %s", run_id)
 
         # 4. Root cause: the top findings in parallel, one per vulnerable function --------------
         run.step("analyze", "running", "Reading the vulnerable code and its callers")
@@ -345,6 +345,10 @@ def execute(run_id: int, token: str | None, target: dict | list | None = None, l
                                 attempts=sum(x["patch"]["attempts"] for x in fixes))
         if multi:
             res["fixes"] = fixes
+        seed = next((seeds.get((x["finding"]["file"], x["finding"]["line"])) for x in kept
+                     if seeds.get((x["finding"]["file"], x["finding"]["line"]))), None)
+        if seed and verdict_ != "failed":
+            res["quiz_seed"] = seed
         res["files"] = changed if verdict_ != "failed" else {}
         res["security_tests"] = [x["security_test"] for x in kept if (x["security_test"] or {}).get("code")]
 
