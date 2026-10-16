@@ -21,7 +21,7 @@ POINTS = {"run_verified": 100, "run_clean": 20, "pr_opened": 50, "brief_saved": 
 QUIZ_RIGHT, QUIZ_WRONG = 30, 5
 REASONS = {"run_verified": "Bug proven and fixed", "run_clean": "Clean check", "pr_opened": "Pull request opened",
            "brief_saved": "Project brief saved", "daily_chat": "First chat today",
-           "fix_committed": "Fix committed"}
+           "fix_committed": "Fix committed", "gift": "Bonus XP"}  # gift: granted by hand, never by an action
 LEVELS = [(1, "Novice", 0), (2, "Apprentice", 100), (3, "Practitioner", 250), (4, "Defender", 450),
           (5, "Sensei", 700), (6, "Master", 1000)]
 # kinds: the event kinds that count toward the goal ("quiz_right" = a quiz answered correctly)
