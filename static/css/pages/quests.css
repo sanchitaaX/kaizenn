@@ -1,0 +1,95 @@
+/* Quests & rewards: the level, the ladder of levels, quests, coupons, how XP is earned, and the options. */
+
+.qx { padding-top: var(--s-6); }
+.qx-head { align-items: flex-start; }
+.qx-master { flex: none; margin-top: var(--s-2); }
+.qx-h2 { font-size: var(--fs-17); }
+.qx-section { margin-top: var(--s-6); }
+.qx-section > .qx-h2 { margin-bottom: var(--s-3); }
+.qx-note { margin: calc(-1 * var(--s-2)) 0 var(--s-3); }
+
+/* Off */
+.qx-intro { display: flex; gap: var(--s-4); align-items: flex-start; }
+.qx-intro-mark { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border-radius: var(--r-md);
+  background: var(--accent-tint); color: var(--accent-ink); }
+
+/* Level */
+.qx-level { display: flex; align-items: center; gap: var(--s-5); }
+.qx-level-badge { flex: none; width: 64px; height: 64px; display: grid; place-items: center; border-radius: 18px;
+  background: var(--accent); color: #fff; font-size: var(--fs-28); font-weight: 700; box-shadow: var(--shadow-2); }
+.qx-level-main { flex: 1; min-width: 0; }
+.qx-level-name { font-size: var(--fs-22); margin-bottom: var(--s-2); }
+.qx-level-next { margin-top: var(--s-2); }
+.qx-level-next strong { color: var(--ink); font-family: var(--mono); }
+.qx-level-stats { flex: none; display: flex; gap: var(--s-5); text-align: center; }
+.qx-level-stats div { display: flex; flex-direction: column; }
+.qx-level-stats strong { font-size: var(--fs-22); font-family: var(--mono); }
+
+.qx-track { height: 8px; border-radius: var(--r-pill); background: var(--accent-tint-2); overflow: hidden; }
+.qx-track-sm { height: 6px; margin-top: var(--s-3); }
+.qx-fill { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .4s var(--ease); }
+
+/* Ladder of levels */
+.qx-ladder { list-style: none; margin: var(--s-4) 0 0; padding: 0; display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--s-2); }
+.qx-rung { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: var(--s-3) var(--s-1);
+  border-radius: var(--r-md); border: 1px solid var(--hairline); background: var(--surface); text-align: center; }
+.qx-rung-dot { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; margin-bottom: 2px;
+  font-size: var(--fs-12); font-weight: 700; background: var(--surface-soft); color: var(--ink-soft); border: 1px solid var(--hairline); }
+.qx-rung-name { font-size: var(--fs-13); font-weight: 600; }
+.qx-rung-xp { font-size: var(--fs-12); color: var(--ink-faint); font-family: var(--mono); }
+.qx-rung-reward { font-size: var(--fs-12); color: var(--ink-soft); }
+.qx-rung.is-past .qx-rung-dot { background: var(--accent-tint-2); color: var(--accent-ink); border-color: transparent; }
+.qx-rung.is-now { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.qx-rung.is-now .qx-rung-dot { background: var(--accent); color: #fff; border-color: transparent; }
+
+/* Quests */
+.qx-quests { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s-3); }
+.qx-quest { padding: var(--s-4); display: flex; flex-direction: column; gap: var(--s-1); }
+.qx-quest-top { display: flex; align-items: center; gap: var(--s-2); }
+.qx-quest-icon { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--r-sm);
+  background: var(--surface-soft); color: var(--ink-soft); }
+.qx-quest-name { flex: 1; min-width: 0; font-weight: 600; }
+.qx-quest-progress { margin-top: var(--s-1); font-family: var(--mono); color: var(--ink-soft); }
+.qx-quest.is-done { background: var(--accent-tint); border-color: transparent; }
+.qx-quest.is-done .qx-quest-icon { background: var(--accent); color: #fff; }
+.qx-quest.is-done .qx-quest-progress { color: var(--accent-ink); font-family: var(--font); font-weight: 600; }
+
+/* Rewards */
+.qx-rewards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--s-3); }
+.qx-reward { padding: var(--s-4); display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-2); }
+.qx-reward-off { font-size: var(--fs-22); font-weight: 700; }
+.qx-code { font-family: var(--mono); font-size: var(--fs-13); padding: var(--s-1) var(--s-2); border-radius: var(--r-sm);
+  background: var(--accent-tint); color: var(--accent-ink); overflow-wrap: anywhere; }
+.qx-demo { font-size: var(--fs-12); font-weight: 600; color: var(--alert-ink); background: var(--alert-tint); border-radius: var(--r-pill); padding: 2px var(--s-2); }
+.qx-reward.is-locked { background: var(--surface-soft); border-style: dashed; }
+.qx-reward.is-locked .qx-reward-off { color: var(--ink-faint); }
+.qx-lock { display: flex; align-items: center; gap: var(--s-1); margin-top: auto; }
+
+/* Earning and activity */
+.qx-cols { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-5); }
+.qx-cols .qx-section { min-width: 0; }
+.qx-earn .list-row { padding: var(--s-3) var(--s-4); font-size: var(--fs-13); }
+.qx-earn .row-main { display: flex; flex-direction: column; }
+.qx-points { flex: none; font-family: var(--mono); font-weight: 600; color: var(--accent-ink); }
+.qx-when { font-size: var(--fs-12); }
+
+/* Options */
+.qx-settings { padding-top: var(--s-5); border-top: 1px solid var(--hairline); }
+.qx-option { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); padding: var(--s-3) 0; }
+.qx-option + .qx-option { border-top: 1px solid var(--hairline); }
+.qx-option-name { font-weight: 600; }
+.qx-option .switch, .qx-option .btn { flex: none; }
+.qx-danger { color: var(--alert-ink); border-color: var(--alert-tint-2); }
+.qx-danger:hover:not(:disabled) { background: var(--alert-tint); }
+
+@media (max-width: 720px) {
+  .qx-ladder { grid-template-columns: repeat(3, 1fr); }
+  .qx-cols { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .qx-head { flex-direction: row; }
+  .qx-level { flex-wrap: wrap; }
+  .qx-level-stats { width: 100%; justify-content: space-around; }
+  .qx-option { flex-direction: column; align-items: flex-start; }
+  .qx-intro { flex-direction: column; }
+}

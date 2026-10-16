@@ -1,6 +1,6 @@
 """HTML page routes.
 
-Pages: /login, /dashboard (home), /chat, /chat/{id}, /commits, /learning, /profile. Every app page needs a signed-in user
+Pages: /login, /dashboard (home), /chat, /chat/{id}, /commits, /learning, /quests, /profile. Every app page needs a signed-in user
 (auth.current_user); signed-out visitors go to /login. The pages fetch their data from the JSON API, so the
 context here is small: request, active, user, plus the analysis id for /chat/{id} and the members list for /commits.
 
@@ -124,6 +124,44 @@ def learning(request: Request):
     if isinstance(user, RedirectResponse):
         return user
     return _render(request, "learning.html", {"request": request, "active": "learning", "user": user})
+
+
+@router.get("/quests", response_class=HTMLResponse)
+def quests(request: Request):
+    user = _gate(request)
+    if isinstance(user, RedirectResponse):
+        return user
+    state = game.state(user["login"])
+    return _render(request, "quests.html", {"request": request, "active": "quests", "user": user,
+                                            "game": state, "catalog": game.catalog(),
+                                            "activity": _activity(state.get("recent", []))})
+
+
+def _activity(events: list[dict], limit: int = 12) -> list[dict]:
+    """Newest first, with back-to-back events of the same kind folded into one row (20 commits = one line)."""
+    rows: list[dict] = []
+    for e in events:
+        if rows and rows[-1]["reason"] == e["reason"]:
+            rows[-1]["points"] += e["points"]
+            rows[-1]["count"] += 1
+            continue
+        if len(rows) == limit:
+            break
+        rows.append({"reason": e["reason"], "points": e["points"], "count": 1, "when": _when(e["created_at"])})
+    return rows
+
+
+def _when(value: str) -> str:
+    """A short "how long ago" for the activity list."""
+    then = db.parse_iso(value)
+    if not then:
+        return ""
+    secs = max(0, int((db.now() - then).total_seconds()))
+    for size, unit in ((86400, "day"), (3600, "hour"), (60, "minute")):
+        if secs >= size:
+            n = secs // size
+            return f"{n} {unit}{'s' if n != 1 else ''} ago"
+    return "just now"
 
 
 @router.get("/profile", response_class=HTMLResponse)

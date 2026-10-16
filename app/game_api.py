@@ -18,9 +18,30 @@ class QuizIn(BaseModel):
     choice: str = Field(..., max_length=40)
 
 
+class PrefsIn(BaseModel):
+    quiz: bool | None = None
+    toasts: bool | None = None
+
+
 @router.get("")
 def game_state(user: dict = Depends(require_user)):
     return game.state(user["login"])
+
+
+@router.get("/catalog")
+def game_catalog(user: dict = Depends(require_user)):
+    return game.catalog()
+
+
+@router.post("/prefs")
+def save_prefs(body: PrefsIn, user: dict = Depends(require_user)):
+    return game.set_prefs(user["login"], quiz=body.quiz, toasts=body.toasts)
+
+
+@router.post("/reset")
+def reset(user: dict = Depends(require_user)):
+    game.reset_progress(user["login"])
+    return {"ok": True, "message": "Progress reset. Your XP, quests and coupons start again from zero."}
 
 
 def _seed_or_error(run_id: int, user: dict) -> dict:

@@ -92,6 +92,7 @@
           g.n += 1;
           groups.set(e.reason, g);
         });
+        if (next.prefs && next.prefs.toasts === false) groups.clear();  // "XP pop-ups" off on the Quests page
         [...groups.values()].forEach((g, i) => setTimeout(() =>
           K.toast("+" + g.points + " XP · " + g.reason + (g.n > 1 ? " ×" + g.n : "")), i * 2800));
         const had = new Set(prev.rewards.map((r) => r.level));
@@ -102,7 +103,9 @@
     }
 
     // Resolves when the user answered or skipped, so the chat can then show the agent's result.
+    // null when "Guess the bug" is switched off on the Quests page.
     function quiz(runId, stepsEl) {
+      if (state && state.prefs && state.prefs.quiz === false) return null;
       return new Promise((resolve) => {
         let finished = false;
         const finish = () => {

@@ -19,7 +19,7 @@ from app import db  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.main import app  # noqa: E402
 
-APP_PAGES = ["/dashboard", "/chat", "/commits", "/learning", "/profile"]
+APP_PAGES = ["/dashboard", "/chat", "/commits", "/learning", "/quests", "/profile"]
 
 
 @pytest.fixture(autouse=True)

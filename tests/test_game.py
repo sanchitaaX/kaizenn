@@ -264,3 +264,47 @@ def test_committing_demo_fixes_awards_xp_once_per_fix(demo):
     demo.post(f"/api/fleet/repos/{second['id']}/commit-all", json={"fix_ids": [fix["fix_id"]]})
     after = demo.get("/api/game").json()
     assert after["xp"] == state["xp"] + game.POINTS["fix_committed"]
+
+
+def test_catalog_lists_levels_rewards_and_earning():
+    cat = game.catalog()
+    assert [lv["n"] for lv in cat["levels"]] == [n for n, _, _ in game.LEVELS]
+    assert cat["levels"][0]["reward"] is None and cat["levels"][1]["reward"]["platform"] == "Udemy"
+    assert {"reason": "Fix committed", "points": game.POINTS["fix_committed"]} in cat["earn"]
+    assert [q["key"] for q in cat["quests"]] == [q["key"] for q in game.QUESTS]
+
+
+def test_prefs_default_on_and_reset_keeps_them():
+    turn_on()
+    assert game.state(LOGIN)["prefs"] == {"quiz": True, "toasts": True}
+    assert game.set_prefs(LOGIN, quiz=False) == {"quiz": False, "toasts": True}
+    game.award(LOGIN, "brief_saved", "r1")
+    assert game.state(LOGIN)["xp"] > 0
+    game.reset_progress(LOGIN)
+    state = game.state(LOGIN)
+    assert state["xp"] == 0 and state["rewards"] == [] and not any(q["done"] for q in state["quests"])
+    assert state["prefs"] == {"quiz": False, "toasts": True}
+    game.forget(LOGIN)
+    assert game.prefs(LOGIN) == {"quiz": True, "toasts": True}
+
+
+def test_quests_page_and_its_options(demo):
+    page = demo.get("/quests")
+    assert page.status_code == 200 and "Quests &amp; rewards is off" in page.text and 'href="/quests"' in page.text
+    demo.post("/api/profile/modes", json={"game_mode": True})
+    demo.put("/api/brief", json={"summary": "A shop", "users": "buyers", "permissions": "admins refund"})
+    page = demo.get("/quests").text
+    assert "Novice" in page and "Brief writer" in page and "Unlocks at 100 XP" in page and "Project brief saved" in page
+    assert demo.post("/api/game/prefs", json={"toasts": False}).json() == {"quiz": True, "toasts": False}
+    assert demo.get("/api/game").json()["prefs"]["toasts"] is False
+    assert demo.get("/api/game/catalog").json()["levels"][-1]["name"] == "Master"
+    assert demo.post("/api/game/reset").json()["ok"] is True
+    assert demo.get("/api/game").json()["xp"] == 0
+
+
+def test_quests_activity_folds_repeated_events():
+    from app.pages import _activity
+    ts = "2026-01-01T00:00:00+00:00"
+    events = [{"reason": "Fix committed", "points": 10, "created_at": ts}] * 3 + [{"reason": "Clean check", "points": 20, "created_at": ts}]
+    rows = _activity(events)
+    assert [(r["reason"], r["points"], r["count"]) for r in rows] == [("Fix committed", 30, 3), ("Clean check", 20, 1)]

@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block title %}Quests & rewards | KAIZEN{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="/static/css/pages/quests.css">
+{% endblock %}
+
+{% block content %}
+{% set on = game.enabled %}
+<div class="page page-narrow qx">
+  <header class="page-head qx-head">
+    <div>
+      <h1 class="page-title">Quests &amp; rewards</h1>
+      <p class="page-sub">Earn XP while you check and fix code, finish quests, and unlock a demo coupon at every level.</p>
+    </div>
+    <label class="switch qx-master">
+      <span class="small muted" id="qx-master-label">{{ 'On' if on else 'Off' }}</span>
+      <input type="checkbox" id="qx-enabled" aria-label="Quests and rewards"{% if on %} checked{% endif %}>
+      <span class="switch-track"></span>
+    </label>
+  </header>
+
+  {% if not on %}
+  <section class="card qx-intro" aria-labelledby="qx-intro-title">
+    <span class="qx-intro-mark">{{ icon('spark', 22) }}</span>
+    <div class="stack-sm">
+      <h2 class="qx-h2" id="qx-intro-title">Quests &amp; rewards is off</h2>
+      <p class="muted">Turn it on to see your level above the chat, play "Guess the bug" while the agent works, and collect a coupon at every level. Nothing is counted while it is off.</p>
+      <div><button type="button" class="btn btn-primary btn-sm" id="qx-turn-on">{{ icon('spark', 14) }} Turn on</button></div>
+    </div>
+  </section>
+
+  <div class="qx-cols">
+    <section class="qx-section" aria-labelledby="qx-levels-title">
+      <h2 class="qx-h2" id="qx-levels-title">Levels and coupons</h2>
+      <ul class="list qx-earn">
+        {% for l in catalog.levels %}
+        <li class="list-row"><span class="row-main">Level {{ l.n }} · {{ l.name }}<span class="small muted qx-when">{% if l.reward %}{{ l.reward.discount }}% off on {{ l.reward.platform }} (demo code){% else %}Where everyone starts{% endif %}</span></span><span class="qx-points">{{ l.min }} XP</span></li>
+        {% endfor %}
+      </ul>
+    </section>
+    <section class="qx-section" aria-labelledby="qx-earn-off-title">
+      <h2 class="qx-h2" id="qx-earn-off-title">How to earn XP</h2>
+      <ul class="list qx-earn">
+        {% for e in catalog.earn %}
+        <li class="list-row"><span class="row-main">{{ e.reason }}</span><span class="qx-points">+{{ e.points }}</span></li>
+        {% endfor %}
+        {% for q in catalog.quests %}
+        <li class="list-row"><span class="row-main">Quest: {{ q.name }}<span class="small muted qx-when">{{ q.goal }}</span></span><span class="qx-points">+{{ q.bonus }}</span></li>
+        {% endfor %}
+      </ul>
+    </section>
+  </div>
+  {% else %}
+  {% set lv = game.level %}
+  {% if lv.next is none %}{% set pct = 100 %}{% else %}{% set pct = ((game.xp - lv.min) * 100 / (lv.next - lv.min)) | round | int %}{% endif %}
+  {% set next_level = catalog.levels | selectattr('n', 'equalto', lv.n + 1) | first %}
+  <section class="card qx-level" aria-labelledby="qx-level-title">
+    <div class="qx-level-badge" aria-hidden="true">{{ lv.n }}</div>
+    <div class="qx-level-main">
+      <p class="small muted">Level {{ lv.n }}</p>
+      <h2 class="qx-level-name" id="qx-level-title">{{ lv.name }}</h2>
+      <div class="qx-track" role="progressbar" aria-label="Progress to the next level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ pct }}">
+        <span class="qx-fill" style="width: {{ pct }}%"></span>
+      </div>
+      <p class="small muted qx-level-next">
+        {% if lv.next is none %}<strong>{{ game.xp }} XP</strong> · top level reached
+        {% else %}<strong>{{ game.xp }} XP</strong> · {{ lv.next - game.xp }} XP to {{ next_level.name }}{% endif %}
+      </p>
+    </div>
+    <div class="qx-level-stats">
+      <div><strong>{{ game.quests | selectattr('done') | list | length }}/{{ game.quests | length }}</strong><span class="small muted">quests</span></div>
+      <div><strong>{{ game.rewards | length }}</strong><span class="small muted">coupons</span></div>
+    </div>
+  </section>
+
+  <ol class="qx-ladder" aria-label="Levels">
+    {% for l in catalog.levels %}
+    <li class="qx-rung{% if l.n < lv.n %} is-past{% elif l.n == lv.n %} is-now{% endif %}">
+      <span class="qx-rung-dot">{% if l.n < lv.n %}{{ icon('check', 12) }}{% else %}{{ l.n }}{% endif %}</span>
+      <span class="qx-rung-name">{{ l.name }}</span>
+      <span class="qx-rung-xp">{{ l.min }} XP</span>
+      {% if l.reward %}<span class="qx-rung-reward">{{ l.reward.discount }}% {{ l.reward.platform }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+
+  <section class="qx-section" aria-labelledby="qx-quests-title">
+    <h2 class="qx-h2" id="qx-quests-title">Quests</h2>
+    <ul class="qx-quests">
+      {% for q in game.quests %}
+      <li class="card qx-quest{% if q.done %} is-done{% endif %}">
+        <div class="qx-quest-top">
+          <span class="qx-quest-icon">{% if q.done %}{{ icon('check', 16) }}{% else %}{{ icon('spark', 16) }}{% endif %}</span>
+          <span class="qx-quest-name">{{ q.name }}</span>
+          <span class="pill">+{{ q.bonus }} XP</span>
+        </div>
+        <p class="small muted">{{ q.goal }}</p>
+        <div class="qx-track qx-track-sm" role="progressbar" aria-label="{{ q.name }} progress" aria-valuemin="0" aria-valuemax="{{ q.target }}" aria-valuenow="{{ q.progress }}">
+          <span class="qx-fill" style="width: {{ (q.progress * 100 / q.target) | round | int }}%"></span>
+        </div>
+        <p class="small qx-quest-progress">{% if q.done %}Done{% else %}{{ q.progress }} / {{ q.target }}{% endif %}</p>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="qx-section" aria-labelledby="qx-rewards-title">
+    <h2 class="qx-h2" id="qx-rewards-title">Rewards</h2>
+    <p class="small muted qx-note">Coupons here are demo codes for showing the idea. They are not redeemable on any platform.</p>
+    <ul class="qx-rewards">
+      {% set earned = game.rewards | map(attribute='level') | list %}
+      {% for r in game.rewards %}
+      <li class="card qx-reward">
+        <p class="small muted">Level {{ r.level }} · {{ r.platform }}</p>
+        <p class="qx-reward-off">{{ r.discount }}% off</p>
+        <code class="qx-code">{{ r.code }}</code>
+        <span class="qx-demo">{{ r.label }}</span>
+        <button type="button" class="btn btn-secondary btn-sm" data-copy="{{ r.code }}">Copy code</button>
+      </li>
+      {% endfor %}
+      {% for l in catalog.levels if l.reward and l.n not in earned %}
+      <li class="card qx-reward is-locked">
+        <p class="small muted">Level {{ l.n }} · {{ l.reward.platform }}</p>
+        <p class="qx-reward-off">{{ l.reward.discount }}% off</p>
+        <p class="small muted qx-lock">{{ icon('lock', 14) }} Unlocks at {{ l.min }} XP</p>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <div class="qx-cols">
+    <section class="qx-section" aria-labelledby="qx-earn-title">
+      <h2 class="qx-h2" id="qx-earn-title">How to earn XP</h2>
+      <ul class="list qx-earn">
+        {% for e in catalog.earn %}
+        <li class="list-row"><span class="row-main">{{ e.reason }}</span><span class="qx-points">+{{ e.points }}</span></li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="qx-section" aria-labelledby="qx-activity-title">
+      <h2 class="qx-h2" id="qx-activity-title">Recent activity</h2>
+      {% if activity %}
+      <ul class="list qx-earn">
+        {% for e in activity %}
+        <li class="list-row"><span class="row-main">{{ e.reason }}{% if e.count > 1 %} ×{{ e.count }}{% endif %}<span class="small muted qx-when">{{ e.when }}</span></span><span class="qx-points">+{{ e.points }}</span></li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="small muted">No XP yet. Run a check in the chat or press Fix all on the dashboard to start.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  <section class="qx-section qx-settings" aria-labelledby="qx-settings-title">
+    <h2 class="qx-h2" id="qx-settings-title">Options</h2>
+    <div class="qx-option">
+      <div>
+        <p class="qx-option-name" id="qx-quiz-label">Guess the bug</p>
+        <p class="small muted" id="qx-quiz-hint">While the agent works, guess what kind of bug it found before it tells you.</p>
+      </div>
+      <label class="switch">
+        <input type="checkbox" data-pref="quiz" aria-labelledby="qx-quiz-label" aria-describedby="qx-quiz-hint"{% if game.prefs.quiz %} checked{% endif %}>
+        <span class="switch-track"></span>
+      </label>
+    </div>
+    <div class="qx-option">
+      <div>
+        <p class="qx-option-name" id="qx-toasts-label">XP pop-ups</p>
+        <p class="small muted" id="qx-toasts-hint">Show a short "+XP" note in the chat when you earn points.</p>
+      </div>
+      <label class="switch">
+        <input type="checkbox" data-pref="toasts" aria-labelledby="qx-toasts-label" aria-describedby="qx-toasts-hint"{% if game.prefs.toasts %} checked{% endif %}>
+        <span class="switch-track"></span>
+      </label>
+    </div>
+    <div class="qx-option">
+      <div>
+        <p class="qx-option-name">Start over</p>
+        <p class="small muted">Set XP, quests and coupons back to zero. Your options stay as they are.</p>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm qx-danger" id="qx-reset">{{ icon('refresh', 14) }} Reset progress</button>
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/pages/quests.js" defer></script>
+{% endblock %}

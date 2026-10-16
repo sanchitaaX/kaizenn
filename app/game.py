@@ -57,7 +57,13 @@ CREATE TABLE IF NOT EXISTS rewards (
     created_at  TEXT NOT NULL,
     UNIQUE (login, level)
 );
+CREATE TABLE IF NOT EXISTS game_prefs (
+    login       TEXT PRIMARY KEY,
+    quiz        INTEGER NOT NULL DEFAULT 1,
+    toasts      INTEGER NOT NULL DEFAULT 1
+);
 """
+PREFS = ("quiz", "toasts")  # "Guess the bug" during agent runs; "+N XP" toasts in the chat
 _ready: set[str] = set()
 _lock = threading.Lock()
 
@@ -206,13 +212,49 @@ def state(login: str) -> dict:
     quests = [{"key": q["key"], "name": q["name"], "goal": q["goal"], "bonus": q["bonus"], "target": q["target"],
                "progress": min(q["target"], sum(counts.get(k, 0) for k in q["kinds"])), "done": q["key"] in done}
               for q in QUESTS]
-    return {"enabled": True, "xp": xp, "level": level_for(xp), "quests": quests, "rewards": rewards, "recent": recent}
+    return {"enabled": True, "xp": xp, "level": level_for(xp), "quests": quests, "rewards": rewards, "recent": recent,
+            "prefs": prefs(login)}
 
 
-def forget(login: str) -> None:
+def catalog() -> dict:
+    """What can be earned: the XP for each event, the levels and the demo coupon each level unlocks."""
+    earn = [{"reason": REASONS[k], "points": p} for k, p in POINTS.items()]
+    earn += [{"reason": "Guess the bug right", "points": QUIZ_RIGHT}, {"reason": "Guess the bug (any answer)", "points": QUIZ_WRONG}]
+    levels = [{"n": n, "name": name, "min": low,
+               "reward": None if n == 1 else {"platform": PLATFORMS[(n - 2) % len(PLATFORMS)][0],
+                                              "discount": DISCOUNTS[(n - 2) % len(DISCOUNTS)]}}
+              for n, name, low in LEVELS]
+    quests = [{k: q[k] for k in ("key", "name", "goal", "target", "bonus")} for q in QUESTS]
+    return {"earn": sorted(earn, key=lambda e: -e["points"]), "levels": levels, "quests": quests}
+
+
+def prefs(login: str) -> dict:
+    with _tx() as conn:
+        row = conn.execute("SELECT quiz, toasts FROM game_prefs WHERE login = ?", (login,)).fetchone()
+    return {k: bool(row[k]) if row else True for k in PREFS}
+
+
+def set_prefs(login: str, **changes) -> dict:
+    now = prefs(login)
+    now.update({k: bool(v) for k, v in changes.items() if k in PREFS and v is not None})
+    with _tx() as conn:
+        conn.execute("INSERT INTO game_prefs (login, quiz, toasts) VALUES (?, ?, ?) "
+                     "ON CONFLICT(login) DO UPDATE SET quiz = excluded.quiz, toasts = excluded.toasts",
+                     (login, int(now["quiz"]), int(now["toasts"])))
+    return now
+
+
+def reset_progress(login: str) -> None:
+    """Start over: XP, quests and coupons go; the settings stay."""
     with _tx() as conn:
         conn.execute("DELETE FROM xp_events WHERE login = ?", (login,))
         conn.execute("DELETE FROM rewards WHERE login = ?", (login,))
+
+
+def forget(login: str) -> None:
+    reset_progress(login)
+    with _tx() as conn:
+        conn.execute("DELETE FROM game_prefs WHERE login = ?", (login,))
 
 
 # --------------------------------------------------------------------------- Guess the bug
