@@ -98,6 +98,8 @@ Never create, change or delete files inside the repository; use os.tmpdir() for 
 
 def _prompt(ws: Workspace, finding: dict, feedback: str = "") -> tuple[str, str, int, str]:
     """(task, prompt, block start, test language) for one finding."""
+    if not ws.exists(finding["file"]):
+        raise FindingError(f"{finding['file']} is not in the repository any more (moved or deleted since it was flagged)")
     lang = "python" if (rules.lang_of(finding["file"]) or "python") == "python" else "javascript"
     if lang == "python":
         task = TASK.format(test_rules=PY_RULES, name_hint="test_securefix_<short>.py", recipe=_recipe(finding))
@@ -156,8 +158,8 @@ def _ask(ws: Workspace, finding: dict, log: model.CallLog, use_model: str, feedb
                   "fix_strategy": model.short(data.get("fix_strategy"), 400), "must_keep": model.short(data.get("must_keep"), 400)},
         "test": {"path": f"{sectest.DIR}/{name}", "code": sectest.as_test(_unescape(str(test.get("code") or "")), name),
                  "attack": model.short(data.get("exploit_input"), 300), "explanation": model.short(test.get("explanation"), 400)},
-        "edits": [{"file": str(e["file"] or finding["file"]).replace("\\", "/"), "find": e["find"], "replace": e["replace"]}
-                  for e in edits][:6],
+        "edits": [{"file": str(e.get("file") or finding["file"]).replace("\\", "/").removeprefix("./"),
+                   "find": e["find"], "replace": e["replace"]} for e in edits][:6],
         "explanation": model.short(data.get("explanation"), 800), "behaviour_change": model.short(data.get("behaviour_change"), 400),
         "model": use_model,
     }
@@ -165,6 +167,10 @@ def _ask(ws: Workspace, finding: dict, log: model.CallLog, use_model: str, feedb
 
 class Skipped(Exception):
     """A call that was not sent because no model had room for it this minute (fast mode never waits)."""
+
+
+class FindingError(Exception):
+    """One finding could not be worked on (its file is gone, or the answer was unusable). Only that finding fails."""
 
 
 def _estimate(ws: Workspace, finding: dict, feedback: str) -> int:
@@ -195,12 +201,15 @@ def dry_run(ws: Workspace, edits: list[dict]) -> list[str]:
     """Problems a patch would have (does not match, or breaks the syntax), without leaving it applied."""
     if not edits:
         return ["the answer had no edits"]
-    snapshot = {e["file"]: ws.read(e["file"]) for e in edits if ws.exists(e["file"])}
+    snapshot = {e.get("file"): ws.read(e["file"]) for e in edits if e.get("file") and ws.exists(e["file"])}
+    recorded = set(ws.originals)
     problems = patcher.apply(ws, edits)
     if not problems:
         problems = [f"{f}: {d}" for f in snapshot for s, d in [syntax_ok(ws.read(f), f)] if s == "fail"]
     for rel, text in snapshot.items():
         ws.path(rel).write_text(text, encoding="utf-8", newline="")
+    for rel in set(ws.originals) - recorded:  # a trial leaves nothing behind, not even a "changed" record
+        ws.originals.pop(rel, None)
     return problems
 
 
@@ -229,8 +238,11 @@ def ask_all(ws: Workspace, findings: list[dict], log: model.CallLog, feedback: d
             return Skipped("no model had room for another call this minute")
         try:
             return _ask(ws, findings[i], log, plan[i], (feedback or {}).get(i, ""))
-        except model.ModelError as exc:
+        except (model.ModelError, FindingError) as exc:
             return exc
+        except Exception as exc:  # any other surprise in one finding must not end the whole Fix all run
+            log.say(f"{findings[i]['file']}: {exc.__class__.__name__}")
+            return FindingError(f"{exc.__class__.__name__}: {str(exc)[:200]}")
 
     with ThreadPoolExecutor(max_workers=max(1, len(findings))) as pool:
         return list(pool.map(one, range(len(findings))))
@@ -440,23 +452,47 @@ def repair(run, ws: Workspace, findings: list[dict], answers: list, suites: list
                     blamed[it["n"]] = c["new_failures"]
 
     # 4. Verdict per fix ------------------------------------------------------------------------------
-    for it in items:
-        a = it["answer"]
-        if isinstance(a, Exception) or "snapshot" not in it:
-            continue
-        mine = {"ran": cmp["ran"], "new_failures": blamed.get(it["n"], []), "pre_existing": cmp.get("pre_existing", [])}
-        gates = it["gates"] + [verify.gate_pattern(_PatternView(ws, it["snapshot"]), it["finding"]),
-                               verify.gate_tests(mine, before, after),
-                               verify.gate_exploit(it["sec_before"], it["sec_after"])]
+    def judge(it: dict, new_failures: list[str], cmp_: dict, after_: list) -> None:
+        """Verdict for one fix from the recorded results of a tree that holds it."""
+        mine = {"ran": cmp_["ran"], "new_failures": new_failures, "pre_existing": cmp_.get("pre_existing", [])}
+        gates = it["base_gates"] + [verify.gate_pattern(_PatternView(ws, it["snapshot"]), it["finding"]),
+                                    verify.gate_tests(mine, before, after_),
+                                    verify.gate_exploit(it["sec_before"], it["sec_after"])]
         it["verdict"], it["reasons"] = verify.verdict(gates, setup_ok)
         it["gates"] = gates
-        it["attempts"][-1].update(verdict=it["verdict"], reasons=it["reasons"], gates=gates, new_failures=mine["new_failures"])
+        it["attempts"][-1].update(verdict=it["verdict"], reasons=it["reasons"], gates=gates, new_failures=new_failures)
 
-    keep = [it for it in items if "snapshot" in it and it["verdict"] != "failed"]
-    if [it["n"] for it in keep] != [it["n"] for it in applied] or blamed:
-        rebuild(keep)  # drop the patches that did not hold, and check the final tree once more
-        if keep:
-            after, cmp = check(keep, "patched-kept")
+    for it in applied:
+        it["base_gates"] = list(it["gates"])
+        judge(it, blamed.get(it["n"], []), cmp, after)
+
+    # The kept fixes must be judged on the tree that will ship: exactly their patches, checked once more.
+    # Without this, patches that break a test only together would all pass, and the tree left by the
+    # one-at-a-time retries (only the last patch) would be what the pull request sends.
+    keep = [it for it in applied if it["verdict"] != "failed"]
+    if keep and ([it["n"] for it in keep] != [it["n"] for it in applied] or blamed or cmp["new_failures"]):
+        rebuild(keep)
+        after, cmp = check(keep, "patched-kept")
+        if cmp["new_failures"]:  # the kept patches still break a test together: add them back one at a time
+            run.step("verify", "running", "The kept patches break a test together; adding them back one at a time")
+            together: list[dict] = []
+            for it in keep:
+                rebuild(together + [it])
+                after_, cmp_ = check(together + [it], f"patched-with-{it['n']}")
+                if cmp_["new_failures"]:
+                    judge(it, [f"together with the other patches: {f}" for f in cmp_["new_failures"]], cmp_, after_)
+                else:
+                    together.append(it)
+            keep = together
+            rebuild(keep)
+            after, cmp = check(keep, "patched-kept-final") if keep else (after, cmp)
+        for it in keep:  # final verdicts come from the final tree's own results
+            judge(it, cmp["new_failures"], cmp, after)
+        if any(it["verdict"] == "failed" for it in keep):
+            keep = [it for it in keep if it["verdict"] != "failed"]
+            rebuild(keep)
+    elif not keep and applied:
+        rebuild([])  # nothing held: back to the downloaded code with only the exploit tests
     for it in items:  # exploit tests of fixes that did not hold leave the tree
         if it not in keep and not isinstance(it["answer"], Exception):
             path = it["answer"]["test"]["path"]
@@ -468,7 +504,7 @@ def repair(run, ws: Workspace, findings: list[dict], answers: list, suites: list
         a, f = it["answer"], it["finding"]
         if isinstance(a, Exception):
             fixes.append(_fix_dict(f, {"plain": "", "technical": ""}, None, None, None, [], "inconclusive",
-                                   [f"the model did not answer ({a})"], [], {}, [], None))
+                                   [f"could not work on this finding ({a})"], [], {}, [], None))
             continue
         if "verdict" not in it:
             last = it["attempts"][-1] if it["attempts"] else {}

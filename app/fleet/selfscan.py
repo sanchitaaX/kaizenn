@@ -41,6 +41,10 @@ def scan(token: str, repo: dict) -> list[dict]:
         raise
     try:
         cands = [c for c in discover.from_rules(ws) + discover.from_bandit(ws, Recorder()) if _plausible(ws, c)]
+        texts: dict[str, list[str]] = {}
+        for c in cands:  # the flagged line's own text identifies the finding when lines above it move
+            lines = texts.setdefault(c["file"], ws.read(c["file"]).splitlines() if ws.exists(c["file"]) else [])
+            c["fingerprint"] = fingerprint(lines[c["line"] - 1]) if 0 < c["line"] <= len(lines) else None
     finally:
         ws.cleanup()
     cands.sort(key=lambda c: (rules.SEVERITY_RANK.get(c["severity"], 4), c["file"], c["line"]))
@@ -58,8 +62,16 @@ def scan(token: str, repo: dict) -> list[dict]:
                             "repository, so this is a pattern match that has not been confirmed yet.")[:600],
             "alert_number": None,
             "alert_url": f"{repo['html_url']}/blob/{branch}/{c['file']}#L{c['line']}" if repo.get("html_url") else None,
-            "first_seen_at": None, "source": "securefix",
+            "first_seen_at": None, "source": "securefix", "fingerprint": c.get("fingerprint"),
         })
         if len(out) == MAX_FINDINGS:
+            for a in out:  # more were found than kept: the list is not the whole picture
+                a["partial"] = True
             break
     return out
+
+
+def fingerprint(line: str) -> str | None:
+    """A line's code with spacing collapsed, so re-indenting or moving it keeps the same identity."""
+    text = " ".join(line.split())[:300]
+    return text or None

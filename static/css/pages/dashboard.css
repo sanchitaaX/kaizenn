@@ -478,3 +478,9 @@ dialog::backdrop { background: rgba(43, 48, 59, 0.38); }
 .flagged-text .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .new-badge { padding: 1px 8px; border-radius: var(--r-pill); font-size: 11px; font-weight: 700; color: #fff; background: var(--alert); }
 @media (max-width: 560px) { .flagged-row { flex-wrap: wrap; } .flagged-text .small { white-space: normal; } }
+
+/* The agent's "may not be exploitable" note: a person decides */
+.vuln-review { display: flex; align-items: flex-start; gap: var(--s-2); margin-top: 6px; padding: 8px 10px; border-radius: var(--r-sm); background: var(--blue-50); border: 1px solid var(--blue-100); font-size: var(--fs-12); color: var(--ink-soft); }
+.vuln-review span { flex: 1; }
+.vuln-review strong { color: var(--ink); }
+.vuln-note { font-size: var(--fs-12); color: var(--ink-soft); }

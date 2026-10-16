@@ -130,9 +130,8 @@ def pull_request(run_id: int, user: dict = Depends(require_user)):
             found = github.get_file(token, repo, path, branch)
             github.put_file(token, repo, path, content, branch, f"Fix {_titles(res, path) or f.get('title', 'security issue').lower()} in {path}",
                             found[1] if found else None)
-        for sec in res.get("security_tests") or [res.get("security_test") or {}]:
-            if sec.get("code") and sec.get("path"):
-                github.put_file(token, repo, sec["path"], sec["code"], branch, "Add the KAIZEN exploit regression test")
+        for sec in _shipped_tests(res):  # only exploit tests the recorded runs prove: failed before, pass after
+            github.put_file(token, repo, sec["path"], sec["code"], branch, "Add the KAIZEN exploit regression test")
         fixes = [x for x in res.get("fixes") or [] if x.get("verdict") != "failed"]
         title = (f"Fix {len(fixes)} security vulnerabilities" if len(fixes) > 1 else
                  f"Fix {f.get('title', 'security issue').lower()} in {f.get('file', '')}")
@@ -151,6 +150,21 @@ def pull_request(run_id: int, user: dict = Depends(require_user)):
     store.mark_pr_open(repo, ids + ([run["vuln_id"]] if run.get("vuln_id") else []),
                        [(x.get("file"), x.get("line")) for x in fixed if x.get("file")], pr)
     return pr
+
+
+def _proven(sec: dict | None) -> bool:
+    """The recorded runs show this exploit test failing by assertion on the original code and passing on the patch."""
+    sec = sec or {}
+    return bool(sec.get("code") and sec.get("path") and (sec.get("before") or {}).get("outcome") == "assert_failed"
+                and (sec.get("after") or {}).get("outcome") == "passed")
+
+
+def _shipped_tests(res: dict) -> list[dict]:
+    if res.get("fixes"):
+        tests = [x.get("security_test") for x in res["fixes"] if x.get("verdict") != "failed"]
+    else:
+        tests = [res.get("security_test")]
+    return [t for t in tests if _proven(t)]
 
 
 def _titles(res: dict, path: str) -> str:
@@ -175,8 +189,11 @@ def _pr_body(run_id: int, res: dict) -> str:
                 lines.append(f"- {mark} {g.get('label') or g['key']}: {g.get('detail')}")
             if x["verdict"] == "failed":
                 lines.append("- This fix did not hold and is not part of this pull request.")
-            elif sec.get("path"):
-                lines.append(f"- Exploit test: `{sec['path']}`")
+            elif _proven(sec):
+                lines.append(f"- Exploit test `{sec['path']}` (included): failed on the original code, passes with this patch.")
+            else:
+                lines.append("- No exploit test included: the exploit could not be reproduced with a test, so this fix "
+                             "is not proven by one.")
             lines.append("")
         lines += ["Download the full report from the KAIZEN run.", "", "This change was written by an AI agent. Please review it before merging."]
         return "\n".join(lines)
@@ -188,8 +205,11 @@ def _pr_body(run_id: int, res: dict) -> str:
         mark = {"pass": "[x]", "fail": "[ ] FAILED:", "skip": "[-]", "warn": "[!]"}.get(g["status"], "-")
         lines.append(f"- {mark} {g.get('label') or g['key']}: {g.get('detail')}")
     sec = res.get("security_test") or {}
-    if sec.get("path"):
+    if _proven(sec):
         lines += ["", f"The exploit test `{sec['path']}` is included: it failed on the original code and passes with this patch."]
+    else:
+        lines += ["", "No exploit test is included: the exploit could not be reproduced with a test, so this fix is not "
+                      "proven by one. Review it with extra care."]
     lines += ["", "Download the full report from the KAIZEN run.",
               "", "This change was written by an AI agent. Please review it before merging."]
     return "\n".join(lines)

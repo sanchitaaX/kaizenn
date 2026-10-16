@@ -33,7 +33,7 @@ SEV_FILL = {"critical": DEEP, "high": MID, "medium": PALE, "low": SURFACE}
 SEV_INK = {"critical": colors.white, "high": colors.white, "medium": DEEP, "low": SOFT}
 SOURCE = {"demo": "KAIZEN demo data", "codeql": "GitHub code scanning (CodeQL)"}
 STATUS = {"open": "Open", "fix_saved": "Fix written, waiting for review", "pr_open": "Pull request open",
-          "fixed": "Fixed", "dismissed": "Not exploitable (checked by the agent)"}
+          "fixed": "Fixed", "dismissed": "Dismissed by a person"}
 MAX_DETAILED = 40  # findings written out in full in a repository report
 
 

@@ -405,7 +405,7 @@ def commit_all(repo_id: int, body: CommitAllIn, user: dict = Depends(require_use
         raise HTTPException(status_code=404, detail="That repository was not found.")
     if found["repo"]["source"] != "demo":
         raise HTTPException(status_code=409, detail="For a GitHub repository, Commit all opens the agent's pull request.")
-    committed = []
+    committed, refused = [], []
     for fix_id in dict.fromkeys(body.fix_ids):
         fix = store.get_fix(fix_id)
         if not fix or fix["status"] not in ("draft", "saved"):
@@ -413,14 +413,22 @@ def commit_all(repo_id: int, body: CommitAllIn, user: dict = Depends(require_use
         vuln = store.get_vuln(fix["vuln_id"], _workspaces(user))
         if not vuln or vuln["repo_id"] != repo_id:
             continue
+        proof = store.get_fix_proof(fix_id)
+        if proof and proof.get("verdict") == "broken":  # the same rule as the single Commit button
+            refused.append({"fix_id": fix_id, "title": vuln["title"],
+                            "why": "the checks show this fix breaks something"})
+            continue
         short = hashlib.sha1(f"{fix_id}:{vuln['id']}".encode()).hexdigest()[:7]
         store.decide_fix(fix_id, "committed", "fixed", branch=f"kaizen/vuln-{vuln['id']}", commit_sha=short)
-        game.award_quietly(user["login"], "fix_committed", f"fix-{fix_id}")
+        game.award_quietly(user["login"], "fix_committed", game.problem_key(vuln["full_name"], vuln["file"], vuln["line"], vuln["type"]))
         committed.append({"fix_id": fix_id, "commit_sha": short, "title": vuln["title"]})
     repo = store.get_repo(repo_id, _workspaces(user))["repo"]
-    return {"committed": committed, "repo": {k: repo[k] for k in ("id", "risk_score", "band", "band_label", "open_total")},
+    skipped = (f" Not committed: {len(refused)} fix{'es' if len(refused) != 1 else ''} whose checks show it breaks "
+               "something." if refused else "")
+    return {"committed": committed, "refused": refused,
+            "repo": {k: repo[k] for k in ("id", "risk_score", "band", "band_label", "open_total")},
             "message": f"Committed {len(committed)} fix{'es' if len(committed) != 1 else ''}. "
-                       f"{repo['full_name']} is now at risk {repo['risk_score']}/100."}
+                       f"{repo['full_name']} is now at risk {repo['risk_score']}/100.{skipped}"}
 
 @router.get("/repos/{repo_id}/report.pdf")
 def repo_report(repo_id: int, user: dict = Depends(require_user)):
@@ -435,6 +443,15 @@ def repo_report(repo_id: int, user: dict = Depends(require_user)):
 
 
 # --------------------------------------------------------------------------- fixes
+
+
+@router.post("/vulns/{vuln_id}/dismiss")
+def dismiss_vuln(vuln_id: int, user: dict = Depends(require_user)):
+    """A person dismisses one open problem (usually after the agent noted it may not be exploitable)."""
+    v = store.dismiss_vuln(vuln_id, _workspaces(user), user["login"])
+    if not v:
+        raise HTTPException(status_code=409, detail="Only an open problem can be dismissed.")
+    return {"id": v["id"], "status": v["status"], "review_note": v.get("review_note")}
 
 
 @router.post("/vulns/{vuln_id}/fix")
@@ -514,7 +531,7 @@ def decide(fix_id: int, body: DecisionIn, user: dict = Depends(require_user)):
         fix = store.decide_fix(fix_id, "committed", "fixed", branch=f"kaizen/vuln-{vuln['id']}",
                                commit_sha=short)
         message = f"Committed as {short} on kaizen/vuln-{vuln['id']}. The risk score is updated."
-        game.award_quietly(user["login"], "fix_committed", f"fix-{fix_id}")
+        game.award_quietly(user["login"], "fix_committed", game.problem_key(vuln["full_name"], vuln["file"], vuln["line"], vuln["type"]))
     else:
         token = user_token(user)
         if not token:

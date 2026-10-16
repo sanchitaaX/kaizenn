@@ -1527,6 +1527,25 @@
     scrollEnd();
   }
 
+  // The dashboard's Fix all button leaves a one-time note (kaizen.fixall.intent) just before it opens the chat.
+  function fixAllIntended(repoId) {
+    try {
+      const note = JSON.parse(sessionStorage.getItem("kaizen.fixall.intent") || "null");
+      sessionStorage.removeItem("kaizen.fixall.intent");
+      return !!note && note.id === repoId && Date.now() - note.at < 60000;
+    } catch (_) { return false; }
+  }
+
+  function confirmFixAll(repoId) {
+    resetThread();
+    renderHistory();
+    const start = button("Start Fix all", "btn btn-primary btn-sm", () => startFixAll(repoId, null), "spark");
+    const cancel = button("Cancel", "btn btn-secondary btn-sm", () => startNew(true));
+    assistant([p("This link asks KAIZEN to fix every open problem in a repository. That runs the AI agent, so it starts " +
+      "only when you say so."), h("div", "agent-actions", [start, cancel])]);
+    scrollEnd();
+  }
+
   async function startFixAll(repoId, kept) {
     closeRepoMenu(true);
     resetThread();
@@ -1600,7 +1619,10 @@
       try {
         const out = await SF.api(`/api/fleet/repos/${repoId}/commit-all`, { method: "POST",
           body: { fix_ids: res.fixes.map((f) => f.fix_id) } });
-        actions.replaceChildren(h("div", "agent-verdict is-verified", [h("strong", null, "Committed"), h("span", null, out.message)]));
+        const refusedAll = !out.committed.length && (out.refused || []).length;
+        actions.replaceChildren(h("div", "agent-verdict " + (refusedAll ? "is-inconclusive" : "is-verified"),
+          [h("strong", null, refusedAll ? "Not committed" : (out.refused || []).length ? "Partly committed" : "Committed"),
+            h("span", null, out.message)]));
         remember({ done: out.message });
         notifyDashboard();
         if (GAME) GAME.refresh();
@@ -1796,10 +1818,11 @@
     const cleared = r.verdict === "none_found" && rejected.length;  // the scanner flagged them, the agent cleared them
     let [label, single, cls] = VERDICTS[r.verdict] || VERDICTS.inconclusive;
     if (cleared) {
-      label = "Not exploitable";
+      label = "Looks not exploitable";
       single = `The scanner flagged ${rejected.length === 1 ? "this problem" : "these " + rejected.length + " problems"}, ` +
         "but on reading the code the agent found no way to exploit " + (rejected.length === 1 ? "it" : "them") +
-        ". Nothing needs fixing there, so the dashboard now lists " + (rejected.length === 1 ? "it" : "them") + " as Not exploitable.";
+        ". That is the model's reading, not proof, so " + (rejected.length === 1 ? "it stays" : "they stay") +
+        " open on the dashboard with this note; dismiss " + (rejected.length === 1 ? "it" : "them") + " there if you agree.";
     }
     const held = fixes ? fixes.filter((x) => x.verdict === "verified").length : 0;
     const lead = !fixes ? single : r.verdict === "verified"
@@ -1810,7 +1833,7 @@
     if (rejected.length) {
       kids.push(h("ul", "fixall-list", rejected.map((x) => h("li", "fixall-item is-done", [
         h("span", "fixall-mark", svg("check", 14)),
-        h("span", "fixall-what", [x.title + " is not exploitable", h("code", null, `${x.file}:${x.line}`),
+        h("span", "fixall-what", [x.title + " looks not exploitable", h("code", null, `${x.file}:${x.line}`),
           h("span", "fixall-why", x.why || "The agent found no way for an attacker's input to reach this code.")])]))));
     }
 
@@ -1948,7 +1971,9 @@
     const fixAll = parseInt(params.get("fixall") || "", 10);
     if (location.pathname === "/chat" && fixAll) {  // Fix all from the dashboard
       history.replaceState({}, "", "/chat");
-      startFixAll(fixAll, kept.fixall === fixAll ? kept : null);
+      const resumed = kept.fixall === fixAll ? kept : null;
+      if (resumed || fixAllIntended(fixAll)) startFixAll(fixAll, resumed);
+      else confirmFixAll(fixAll);  // a link alone never starts a run: ask first
       return;
     }
     if (location.pathname === "/chat" && runId) {

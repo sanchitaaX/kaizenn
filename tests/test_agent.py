@@ -624,3 +624,84 @@ def test_an_exploit_test_without_a_test_function_is_wrapped_in_one():
     assert wrapped.startswith("import os, sys\nsys.path.insert(0, '.')\nfrom library.printer import shelf_label")
     ok = "def test_x():\n    assert True\n"
     assert sectest.as_test(ok, "test_a.py") == ok and sectest.as_test(loose, "x.test.js") == loose
+
+
+# --------------------------------------------------------------------------- review fixes (2026-10-16)
+
+TOGETHER_DB = SHOP_FIXES["shop/db.py"][1] + '''
+
+
+import shop as _shop_pkg  # a side effect another fix trips over
+_shop_pkg.STRICT = True'''
+TOGETHER_FILES = '''    if getattr(__import__("shop"), "STRICT", False):
+        raise RuntimeError("strict mode")
+''' + SHOP_FIXES["shop/files.py"][1]
+
+
+def test_fast_mode_patches_that_break_tests_only_together_are_not_all_verified(monkeypatch):
+    """Each patch passes alone; db.py's and files.py's break the invoice tests together. The kept set must be one
+    that was checked as a whole, and the verdicts must come from that check."""
+    script = FastScript({"shop/db.py": {"replace": TOGETHER_DB}, "shop/files.py": {"replace": TOGETHER_FILES}})
+    run = fast_run(monkeypatch, script)
+    res = run["result"]
+    verdicts = {x["finding"]["file"]: x["verdict"] for x in res["fixes"]}
+    assert sorted(v for v in verdicts.values()) == ["failed", "verified", "verified"], verdicts
+    failed = next(x for x in res["fixes"] if x["verdict"] == "failed")
+    assert failed["finding"]["file"] in {"shop/db.py", "shop/files.py"}
+    assert any("together with the other patches" in f for f in failed["attempts"][-1]["new_failures"])
+    kept = {f for f, v in verdicts.items() if v == "verified"}
+    assert set(res["files"]) == kept  # the pull request carries exactly the patches that were checked together
+    assert res["patched"][0]["failed"] == 0 and res["patched"][0]["passed"] == 10
+
+
+def test_fast_mode_survives_a_flagged_file_that_is_gone_and_an_edit_without_a_file(monkeypatch):
+    from app.agent_api import target_from_vuln
+
+    def no_file(_n):
+        find, replace, test = SHOP_FIXES["shop/files.py"]
+        return {"find": find, "replace": replace, "test": test}
+
+    class NoFileKey(FastScript):
+        def __call__(self, stage, task, prompt, log, **kw):
+            answer = super().__call__(stage, task, prompt, log, **kw)
+            for e in answer.get("edits") or []:
+                if e["file"] == "shop/files.py":
+                    e.pop("file")  # the model forgot which file; it is the finding's own
+            return answer
+
+    monkeypatch.setattr(settings, "agent_mode", "fast")
+    monkeypatch.setattr(model, "ask", NoFileKey())
+    vulns = [{"id": 1, "type": "SQL_INJECTION", "title": "SQL injection", "severity": "critical", "cwe": "CWE-89",
+              "file": "shop/db.py", "line": 23, "description": "f-string query"},
+             {"id": 2, "type": "PATH_TRAVERSAL", "title": "Path traversal", "severity": "high", "cwe": "CWE-22",
+              "file": "shop/files.py", "line": 10, "description": "joined path"},
+             {"id": 3, "type": "SQL_INJECTION", "title": "SQL injection", "severity": "critical", "cwe": "CWE-89",
+              "file": "shop/gone.py", "line": 4, "description": "flagged before the file was deleted"}]
+    run_id = controller.create("dev", "me/shop", None, None)
+    controller.execute(run_id, None, target=[target_from_vuln(v) for v in vulns], local=DEMO_SHOP)
+    run = controller.get(run_id)
+    res = run["state"]["result"]
+    assert run["status"] == "done", res.get("error")
+    by_file = {x["finding"]["file"]: x for x in res["fixes"]}
+    assert by_file["shop/db.py"]["verdict"] == "verified" and by_file["shop/files.py"]["verdict"] == "verified"
+    gone = by_file["shop/gone.py"]
+    assert gone["verdict"] != "verified" and "not in the repository any more" in " ".join(gone["reasons"])
+
+
+def test_pull_request_text_claims_only_recorded_proof():
+    from app.agent_api import _pr_body, _shipped_tests
+
+    proven = {"path": "securefix_tests/test_a.py", "code": "x", "before": {"outcome": "assert_failed"},
+              "after": {"outcome": "passed"}}
+    unproven = {"path": "securefix_tests/test_b.py", "code": "x", "before": {"outcome": "error"}, "after": None}
+    base = {"verdict": "inconclusive", "finding": {"title": "SQL injection", "file": "a.py", "line": 3}, "gates": []}
+    body = _pr_body(1, {**base, "security_test": unproven})
+    assert "failed on the original code and passes" not in body and "No exploit test is included" in body
+    assert _shipped_tests({**base, "security_test": unproven}) == []
+    body = _pr_body(1, {**base, "verdict": "verified", "security_test": proven})
+    assert "failed on the original code and passes with this patch" in body
+    multi = {"verdict": "inconclusive", "fixes": [
+        {"verdict": "verified", "finding": {"title": "A", "file": "a.py", "line": 1}, "security_test": proven, "gates": []},
+        {"verdict": "inconclusive", "finding": {"title": "B", "file": "b.py", "line": 2}, "security_test": unproven, "gates": []}]}
+    assert [t["path"] for t in _shipped_tests(multi)] == ["securefix_tests/test_a.py"]
+    assert "No exploit test included" in _pr_body(2, multi)

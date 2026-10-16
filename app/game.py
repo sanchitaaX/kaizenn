@@ -179,13 +179,21 @@ def award_quietly(login: str, kind: str, ref) -> None:
         log.exception("Could not award %s %s to %s", kind, ref, login)
 
 
-def on_run_finished(login: str, run_id: int, status: str, verdict: str | None) -> None:
+def problem_key(repo: str, file: str, line, kind: str) -> str:
+    """A problem's identity for awards: what it is and where, not a database id. Ids change when the demo
+    organization is rebuilt, so keying XP by them would let the same work pay again and again."""
+    raw = f"{(repo or '').lower()}|{file}|{line}|{kind}"
+    return "p:" + hashlib.sha256(raw.encode()).hexdigest()[:20]
+
+
+def on_run_finished(login: str, run_id: int, status: str, verdict: str | None, ref: str | None = None) -> None:
+    """ref: the repository and commit the run checked ("owner/name@sha"), so re-running the same code pays once."""
     if status != "done":
         return
     if verdict == "verified":
-        award_quietly(login, "run_verified", run_id)
+        award_quietly(login, "run_verified", ref or run_id)
     elif verdict == "none_found":
-        award_quietly(login, "run_clean", run_id)
+        award_quietly(login, "run_clean", ref or run_id)
 
 
 # --------------------------------------------------------------------------- reading

@@ -698,28 +698,79 @@ def test_push_brief_md_with_an_expired_github_sign_in_asks_to_sign_in_again(octo
     assert r.status_code == 401 and "Sign in with GitHub again" in r.json()["detail"]
 
 
-def test_problems_the_agent_finds_not_exploitable_stop_counting(octo):
+def test_a_models_not_exploitable_is_a_note_and_only_a_person_dismisses(octo):
+    """The model's opinion is not evidence: the problem stays open and counted, with the note, until a person acts."""
     from app.agent import controller
 
     client, repo_id = octo
     alerts = [{"type": "SQL_INJECTION", "title": "SQL injection", "severity": "critical", "cwe": "CWE-89", "file": f,
                "line": 7, "description": "x", "alert_number": None, "alert_url": None, "first_seen_at": None,
-               "source": "securefix"} for f in ("a.js", "b.js")]
+               "source": "securefix", "fingerprint": "db.query('SELECT * FROM t WHERE id=' + id)"} for f in ("a.js", "b.js")]
     store.save_github_repo("octo", {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop"}, alerts, "scanned")
     vulns = client.get(f"/api/fleet/repos/{repo_id}").json()["vulns"]
     first = next(v for v in vulns if v["file"] == "a.js")
     res = {"rejected": [{"id": f"A{first['id']}", "title": "SQL injection", "file": "a.js", "line": 7, "why": "uses ? parameters"}]}
     controller._dismiss_rejected("OCTO/shop", res)
-    assert res["dismissed"] == 1
+    assert res["flagged_for_review"] == 1 and "dismissed" not in res
     detail = client.get(f"/api/fleet/repos/{repo_id}").json()
-    assert detail["repo"]["open_critical"] == 1
-    assert {v["file"]: v["status"] for v in detail["vulns"]} == {"a.js": "dismissed", "b.js": "open"}
-    # Another repository's name, or a problem that is no longer open, changes nothing.
-    assert store.dismiss_vulns("octo/other", [first["id"]]) == 0
-    # A new scan that reports the same line again does not bring it back.
+    assert detail["repo"]["open_critical"] == 2  # still counted
+    noted = next(v for v in detail["vulns"] if v["file"] == "a.js")
+    assert noted["status"] == "open" and noted["review_note"] == "uses ? parameters"
+    # Another repository's name changes nothing; a rescan keeps the note.
+    assert store.flag_not_exploitable("octo/other", {first["id"]: "x"}) == 0
+    store.save_github_repo("octo", {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop"}, alerts, "scanned")
+    noted = next(v for v in client.get(f"/api/fleet/repos/{repo_id}").json()["vulns"] if v["file"] == "a.js")
+    assert noted["review_note"] == "uses ? parameters"
+    # A person dismisses it; it stops counting, and a scan reporting the same code does not bring it back.
+    r = client.post(f"/api/fleet/vulns/{noted['id']}/dismiss").json()
+    assert r["status"] == "dismissed" and "after the agent's note" in r["review_note"]
+    assert client.post(f"/api/fleet/vulns/{noted['id']}/dismiss").status_code == 409
     store.save_github_repo("octo", {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop"}, alerts, "scanned")
     detail = client.get(f"/api/fleet/repos/{repo_id}").json()
     assert sorted(v["status"] for v in detail["vulns"]) == ["dismissed", "open"] and detail["repo"]["open_critical"] == 1
+
+
+def _code_alert(file: str, line: int, code: str, **kw) -> dict:
+    return {"type": "SQL_INJECTION", "title": "SQL injection", "severity": "critical", "cwe": "CWE-89", "file": file,
+            "line": line, "description": "x", "alert_number": None, "alert_url": None, "first_seen_at": None,
+            "source": "securefix", "fingerprint": code, **kw}
+
+
+def test_code_moving_down_after_a_push_keeps_the_same_problem(octo):
+    client, repo_id = octo
+    repo = {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop"}
+    store.save_github_repo("octo", repo, [_code_alert("a.py", 10, "cur.execute(f'SELECT {x}')")], "scanned")
+    v = client.get(f"/api/fleet/repos/{repo_id}").json()["vulns"][0]
+    store.mark_pr_open("octo/shop", [v["id"]], [], {"number": 5, "url": "https://github.com/octo/shop/pull/5"})
+    store.mark_events_seen("octo")
+    # A push adds three lines above it: same code, new line number.
+    store.save_github_repo("octo", repo, [_code_alert("a.py", 13, "cur.execute(f'SELECT {x}')")], "scanned", from_push=True)
+    vulns = client.get(f"/api/fleet/repos/{repo_id}").json()["vulns"]
+    assert [(x["status"], x["id"]) for x in vulns] == [("pr_open", v["id"])]  # not "fixed", not duplicated
+    assert store.unseen_events("octo") == []  # nothing new was flagged
+    # The same code twice in a file stays two problems, told apart by order.
+    two = [_code_alert("a.py", 13, "cur.execute(f'SELECT {x}')"), _code_alert("a.py", 40, "cur.execute(f'SELECT {x}')")]
+    store.save_github_repo("octo", repo, two, "scanned")
+    assert len(client.get(f"/api/fleet/repos/{repo_id}").json()["vulns"]) == 2
+    # Once the scan stops reporting that code (the merged fix changed it), the pull request was merged.
+    store.save_github_repo("octo", repo, [_code_alert("a.py", 60, "render(user_input)")], "scanned")
+    statuses = {x["id"]: x["status"] for x in client.get(f"/api/fleet/repos/{repo_id}").json()["vulns"]}
+    assert statuses[v["id"]] == "fixed"
+
+
+def test_a_capped_or_other_scanner_scan_does_not_close_pull_requests(octo):
+    client, repo_id = octo
+    repo = {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop"}
+    store.save_github_repo("octo", repo, [_code_alert("a.py", 10, "cur.execute(f'SELECT {x}')")], "scanned")
+    v = client.get(f"/api/fleet/repos/{repo_id}").json()["vulns"][0]
+    store.mark_pr_open("octo/shop", [v["id"]], [], {"number": 5, "url": "https://github.com/octo/shop/pull/5"})
+    # A scan cut short at its cap did not look at everything.
+    store.save_github_repo("octo", repo, [_code_alert("b.py", 1, "other()", partial=True)], "scanned")
+    # A CodeQL scan (alert numbers) says nothing about KAIZEN's own findings.
+    codeql = [{**_code_alert("c.py", 3, None), "alert_number": 77, "source": "codeql"}]
+    store.save_github_repo("octo", repo, codeql, "scanned")
+    statuses = {x["id"]: x["status"] for x in client.get(f"/api/fleet/repos/{repo_id}").json()["vulns"]}
+    assert statuses[v["id"]] == "pr_open"
 
 
 def test_agent_pull_request_marks_the_problems_and_the_scan_after_the_merge_closes_them(octo, monkeypatch):
@@ -850,3 +901,14 @@ def test_a_push_that_adds_problems_is_flagged_once_and_old_problems_keep_their_d
     assert client.get("/api/fleet/events").json()["events"] == []
     store.save_github_repo("octo", {"full_name": "octo/pushed", "html_url": "x"}, [mk("d.py")], "scanned", from_push=True)
     assert [e["full_name"] for e in client.get("/api/fleet/events").json()["events"]] == ["octo/pushed"]
+
+
+def test_commit_all_refuses_a_fix_whose_checks_say_it_breaks_something(demo):
+    repo = demo.get("/api/fleet/repos?source=demo&min_score=0").json()["items"][0]
+    fixes = demo.post(f"/api/fleet/repos/{repo['id']}/fix-all").json()["fixes"]
+    broken, fine = fixes[0]["fix_id"], [f["fix_id"] for f in fixes[1:]]
+    store.set_fix_proof(broken, {"status": "done", "verdict": "broken", "checks": []})
+    out = demo.post(f"/api/fleet/repos/{repo['id']}/commit-all", json={"fix_ids": [broken, *fine]}).json()
+    assert [r["fix_id"] for r in out["refused"]] == [broken]
+    assert broken not in [c["fix_id"] for c in out["committed"]] and "Not committed" in out["message"]
+    assert store.get_fix(broken)["status"] == "draft"

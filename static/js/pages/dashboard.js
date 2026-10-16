@@ -22,6 +22,7 @@
   const $ = (id) => document.getElementById(id);
 
   const OWNERS_KEY = "securefix.dashboard.owners";
+  const FIXALL_INTENT = "kaizen.fixall.intent";  // read by chat.js
   const S = { source: "all", q: "", band: "", team: "", sort: "risk", page: 1, summary: null, drawerRepo: null,
     minScore: 80, settingsLoaded: false, openRows: new Set(), owners: loadOwners() };
   const BAND_LABEL = { critical: "Critical", high: "High", medium: "Medium", low: "Low", clean: "Clean", unscanned: "Not scanned" };
@@ -534,6 +535,9 @@
     btn.addEventListener("keydown", (e) => e.stopPropagation());
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
+      // A one-time note that this click asked for Fix all: the chat starts it only with this note, so a link
+      // to /chat?fixall=<id> sent by someone else cannot start a run on its own.
+      try { sessionStorage.setItem(FIXALL_INTENT, JSON.stringify({ id: r.id, at: Date.now() })); } catch (_) { /* private mode */ }
       SF.openChat("/chat?embed=1&fixall=" + r.id);
     });
     return btn;
@@ -641,7 +645,7 @@
     waiting.forEach((v) => body.append(vulnCard(v)));
     if (done.length) body.append(h("p", "drawer-group", `Fixed (${done.length})`));
     done.slice(0, 20).forEach((v) => body.append(vulnCard(v)));
-    if (cleared.length) body.append(h("p", "drawer-group", `Not exploitable (${cleared.length}): the agent read the code and found no way in`));
+    if (cleared.length) body.append(h("p", "drawer-group", `Dismissed (${cleared.length}): a person decided these do not need fixing`));
     cleared.slice(0, 20).forEach((v) => body.append(vulnCard(v)));
   }
 
@@ -841,7 +845,7 @@
   }
 
   const STATUS_TEXT = { fix_saved: "Fix saved, waiting for review", pr_open: "Pull request open", fixed: "Fixed",
-    dismissed: "Not exploitable: the agent checked it" };
+    dismissed: "Dismissed by a person" };
   const CLOSED = (v) => v.status === "fixed" || v.status === "dismissed";
 
   function vulnCard(v) {
@@ -852,6 +856,27 @@
     if (STATUS_TEXT[v.status]) main.append(h("span", "vuln-state", [icon("check", 12), STATUS_TEXT[v.status]]));
     if (v.is_new) top.append(h("span", "new-badge", "New"));
     const card = h("div", "vuln" + (CLOSED(v) ? " is-fixed" : ""), main);
+    if (v.review_note && v.status === "dismissed") main.append(h("p", "vuln-note", v.review_note));
+    if (v.review_note && (v.status === "open" || v.status === "fix_saved")) {
+      // The agent's model thinks this may not be exploitable. That is an opinion, so a person decides.
+      const dismiss = h("button", "btn btn-ghost btn-sm", "Dismiss");
+      dismiss.type = "button";
+      dismiss.addEventListener("click", async () => {
+        if (!confirm("Dismiss this problem? It will stop counting toward the risk score.")) return;
+        dismiss.disabled = true;
+        try {
+          await SF.api(`/api/fleet/vulns/${v.id}/dismiss`, { method: "POST" });
+          SF.toast("Dismissed. It no longer counts toward the risk score.");
+          if (S.drawerRepo) openRepo(S.drawerRepo);
+          loadSummary();
+          loadRepos();
+        } catch (err) { SF.toast(err.message); dismiss.disabled = false; }
+      });
+      main.append(h("div", "vuln-review", [
+        h("span", null, [h("strong", null, "The agent thinks this may not be exploitable: "), v.review_note,
+          " It still counts until you dismiss it."]),
+        dismiss]));
+    }
     if (v.status === "open" || v.status === "fix_saved") {
       const btn = h("button", "btn " + (v.status === "fix_saved" ? "btn-secondary" : "btn-primary") + " btn-sm",
         v.status === "fix_saved" ? "Review fix" : ["Fix", icon("spark", 14)]);

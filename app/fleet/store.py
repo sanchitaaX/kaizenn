@@ -163,6 +163,11 @@ def _tx():
                     fix_cols = {r["name"] for r in conn.execute("PRAGMA table_info(fleet_fixes)")}
                     if "proof" not in fix_cols:  # databases made before proofs
                         conn.execute("ALTER TABLE fleet_fixes ADD COLUMN proof TEXT")
+                    vuln_cols = {r["name"] for r in conn.execute("PRAGMA table_info(fleet_vulns)")}
+                    if "review_note" not in vuln_cols:  # the agent's "may not be exploitable" note, for a person to judge
+                        conn.execute("ALTER TABLE fleet_vulns ADD COLUMN review_note TEXT")
+                    if "fingerprint" not in vuln_cols:  # the flagged line's text, for KAIZEN's own findings
+                        conn.execute("ALTER TABLE fleet_vulns ADD COLUMN fingerprint TEXT")
                     if not conn.execute("SELECT 1 FROM fleet_repos WHERE workspace = ? LIMIT 1", (DEMO,)).fetchone():
                         _seed(conn)
                 _ready.add(path)
@@ -586,29 +591,50 @@ def reopen_pull_request(repo_id: int, pr_number: int) -> int:
     return len(ids)
 
 
-def latest_fix(vuln_id: int) -> dict | None:
-    """The newest fix written for a problem, whatever happened to it since."""
+def latest_fix(vuln_id: int, login: str | None = None, decided: bool = False) -> dict | None:
+    """The newest fix written for a problem, whatever happened to it since. login: only that person's fixes;
+    decided: only fixes they committed, saved or discarded (acted on)."""
+    sql, args = "SELECT * FROM fleet_fixes WHERE vuln_id = ?", [vuln_id]
+    if login:
+        sql += " AND login = ?"
+        args.append(login)
+    if decided:
+        sql += " AND status IN ('committed', 'saved', 'discarded')"
     with _tx() as conn:
-        row = conn.execute("SELECT * FROM fleet_fixes WHERE vuln_id = ? ORDER BY id DESC LIMIT 1", (vuln_id,)).fetchone()
+        row = conn.execute(sql + " ORDER BY id DESC LIMIT 1", args).fetchone()
     return dict(row) if row else None
 
 
-def dismiss_vulns(full_name: str, vuln_ids: list[int]) -> int:
-    """The agent read these open problems of one repository and found them not exploitable: they stop counting."""
-    if not vuln_ids:
+def flag_not_exploitable(full_name: str, notes: dict[int, str]) -> int:
+    """The agent's model read these open problems and thinks they are not exploitable. That is the model's opinion,
+    not evidence, so nothing is closed: each problem keeps counting and carries the note until a person decides."""
+    if not notes:
         return 0
-    now = db.now()
-    marks = ",".join("?" * len(vuln_ids))
+    ids = list(notes)
+    marks = ",".join("?" * len(ids))
     with _tx() as conn:
         rows = conn.execute(
-            f"""SELECT v.id, v.repo_id FROM fleet_vulns v JOIN fleet_repos r ON r.id = v.repo_id
+            f"""SELECT v.id FROM fleet_vulns v JOIN fleet_repos r ON r.id = v.repo_id
                 WHERE v.id IN ({marks}) AND v.status = 'open' AND lower(r.full_name) = lower(?)""",
-            [*vuln_ids, full_name]).fetchall()
+            [*ids, full_name]).fetchall()
         for r in rows:
-            conn.execute("UPDATE fleet_vulns SET status = 'dismissed', fixed_at = ? WHERE id = ?", (db.iso(now), r["id"]))
-        for repo_id in {r["repo_id"] for r in rows}:
-            _recompute(conn, repo_id, now)
+            note = notes[r["id"]] or "The agent found no way for an attacker's input to reach this code."
+            conn.execute("UPDATE fleet_vulns SET review_note = ? WHERE id = ?", (note[:500], r["id"]))
     return len(rows)
+
+
+def dismiss_vuln(vuln_id: int, workspaces: list[str], login: str) -> dict | None:
+    """A person dismissed one open problem (after reading the agent's note, or on their own judgement)."""
+    v = get_vuln(vuln_id, workspaces)
+    if not v or v["status"] not in ("open", "fix_saved"):
+        return None
+    now = db.now()
+    note = f"Dismissed by {login}" + (f" after the agent's note: {v['review_note']}" if v.get("review_note") else "")
+    with _tx() as conn:
+        conn.execute("UPDATE fleet_vulns SET status = 'dismissed', fixed_at = ?, review_note = ? WHERE id = ?",
+                     (db.iso(now), note[:600], vuln_id))
+        _recompute(conn, v["repo_id"], now)
+    return get_vuln(vuln_id, workspaces)
 
 
 def decide_fix(fix_id: int, status: str, vuln_status: str | None, **fields) -> dict:
@@ -628,6 +654,34 @@ def decide_fix(fix_id: int, status: str, vuln_status: str | None, **fields) -> d
 
 
 # --------------------------------------------------------------------------- real GitHub repositories
+
+
+def _line_key(r: dict) -> tuple:
+    return ("line", r["file"], r["line"], r["type"])
+
+
+def _identities(rows: list[dict]) -> list[tuple]:
+    """A stable identity per finding. CodeQL alerts have numbers. KAIZEN's own findings are identified by file, type,
+    the flagged line's text and which occurrence of that text it is (counted top to bottom), so code added or
+    removed above a finding does not turn it into a new one. Old rows without a fingerprint fall back to the line."""
+    keys: list[tuple | None] = [None] * len(rows)
+    seen: dict[tuple, int] = {}
+    for i in sorted(range(len(rows)), key=lambda i: (rows[i]["file"], rows[i]["line"] or 0)):
+        r = rows[i]
+        if r.get("alert_number") is not None:
+            keys[i] = ("alert", r["alert_number"])
+        elif r.get("fingerprint"):
+            base = (r["file"], r["type"], r["fingerprint"])
+            keys[i] = ("code", *base, seen.get(base, 0))
+            seen[base] = seen.get(base, 0) + 1
+        else:
+            keys[i] = _line_key(r)
+    return keys
+
+
+def _matches(r: dict, key: tuple, new_keys: list[tuple], line_keys: set[tuple]) -> bool:
+    """Is this stored finding still reported by the new scan?"""
+    return key in new_keys or (r["alert_number"] is None and not r.get("fingerprint") and _line_key(r) in line_keys)
 
 
 def save_github_repo(login: str, repo: dict, alerts: list[dict] | None, scan_status: str, from_push: bool = False) -> int:
@@ -650,37 +704,49 @@ def save_github_repo(login: str, repo: dict, alerts: list[dict] | None, scan_sta
              db.iso(now), scan_status, repo.get("pushed_at")))
         repo_id = conn.execute("SELECT id FROM fleet_repos WHERE workspace = ? AND full_name = ?",
                                (ws, repo["full_name"])).fetchone()[0]
+        cols = "id, alert_number, file, line, type, fingerprint, status, first_seen_at, review_note"
+        new = [dict(a) for a in (alerts or [])]
+        new_keys = _identities(new)
+        line_keys = {_line_key(a) for a in new}
         # A problem with an open pull request that the scan no longer reports: the pull request was merged.
-        if alerts is not None:
-            now_at = {(a["file"], a["line"], a["type"]) for a in alerts}
-            now_nums = {a["alert_number"] for a in alerts if a["alert_number"] is not None}
-            for r in conn.execute("SELECT id, alert_number, file, line, type FROM fleet_vulns WHERE repo_id = ? "
-                                  "AND status = 'pr_open'", (repo_id,)).fetchall():
-                if (r["alert_number"] not in now_nums) if r["alert_number"] is not None else                         ((r["file"], r["line"], r["type"]) not in now_at):
+        # Only when this scan can speak for it: a scan cut short at its cap, or one from the other scanner
+        # (CodeQL numbers vs KAIZEN's code fingerprints), says nothing about problems it did not look for.
+        if alerts is not None and not any(a.get("partial") for a in new):
+            has_numbers = any(a["alert_number"] is not None for a in new)
+            has_code = any(a["alert_number"] is None for a in new)
+            old = [dict(r) for r in conn.execute(f"SELECT {cols} FROM fleet_vulns WHERE repo_id = ?", (repo_id,))]
+            for r, k in zip(old, _identities(old)):
+                same_scanner = has_numbers if r["alert_number"] is not None else has_code
+                if r["status"] != "pr_open" or (new and not same_scanner):  # an empty full scan: everything is gone
+                    continue
+                if not _matches(r, k, new_keys, line_keys):
                     conn.execute("UPDATE fleet_vulns SET status = 'fixed', fixed_at = ? WHERE id = ?", (db.iso(now), r["id"]))
-        # What was already known, so a problem found again keeps the day it was first seen, and only the
-        # problems this scan adds count as newly flagged.
-        before = conn.execute("SELECT alert_number, file, line, type, first_seen_at FROM fleet_vulns WHERE repo_id = ?",
-                              (repo_id,)).fetchall()
-        seen_at = {(r["alert_number"] if r["alert_number"] is not None else (r["file"], r["line"], r["type"])): r["first_seen_at"]
-                   for r in before}
-        # Keep findings that already have a pull request or a fix; replace the rest with what GitHub says now.
+        # What was already known, so a problem found again keeps the day it was first seen (and the agent's note),
+        # and only the problems this scan adds count as newly flagged.
+        before = [dict(r) for r in conn.execute(f"SELECT {cols} FROM fleet_vulns WHERE repo_id = ?", (repo_id,))]
+        before_keys = _identities(before)
+        seen_at = {k: r for r, k in zip(before, before_keys)}
+        seen_line = {_line_key(r): r for r in before if not r.get("fingerprint") and r["alert_number"] is None}
+        # Keep findings that already have a pull request, a fix or a decision; replace the rest with this scan.
         conn.execute("DELETE FROM fleet_vulns WHERE repo_id = ? AND status = 'open' AND id NOT IN "
                      "(SELECT vuln_id FROM fleet_fixes)", (repo_id,))
-        rows = conn.execute("SELECT alert_number, file, line, type FROM fleet_vulns WHERE repo_id = ?", (repo_id,)).fetchall()
-        kept = {r["alert_number"] for r in rows if r["alert_number"] is not None}
-        kept_at = {(r["file"], r["line"], r["type"]) for r in rows}  # KAIZEN's own findings have no alert number
-        key = lambda a: a["alert_number"] if a["alert_number"] is not None else (a["file"], a["line"], a["type"])
-        adding = [a for a in (alerts or [])
-                  if (a["alert_number"] not in kept if a["alert_number"] is not None
-                      else (a["file"], a["line"], a["type"]) not in kept_at)]
+        rows = [dict(r) for r in conn.execute(f"SELECT {cols} FROM fleet_vulns WHERE repo_id = ?", (repo_id,))]
+        kept_keys = set(_identities(rows))
+        kept_lines = {_line_key(r) for r in rows if not r.get("fingerprint") and r["alert_number"] is None}
+        adding = [(a, k) for a, k in zip(new, new_keys) if k not in kept_keys and _line_key(a) not in kept_lines]
+
+        def earlier(a: dict, k: tuple) -> dict | None:
+            return seen_at.get(k) or seen_line.get(_line_key(a))
+
         conn.executemany(
             """INSERT INTO fleet_vulns (repo_id, type, title, severity, cwe, file, line, description, source,
-                   alert_number, alert_url, status, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)""",
+                   alert_number, alert_url, status, first_seen_at, fingerprint, review_note)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)""",
             [(repo_id, a["type"], a["title"], a["severity"], a["cwe"], a["file"], a["line"], a["description"],
               a.get("source") or "codeql", a["alert_number"], a["alert_url"],
-              seen_at.get(key(a)) or a["first_seen_at"] or db.iso(now)) for a in adding])
-        fresh = [a for a in adding if key(a) not in seen_at]
+              (earlier(a, k) or {}).get("first_seen_at") or a["first_seen_at"] or db.iso(now), a.get("fingerprint"),
+              (earlier(a, k) or {}).get("review_note")) for a, k in adding])
+        fresh = [a for a, k in adding if not earlier(a, k)]
         if (known or from_push) and fresh:  # flag it; the first import of someone's repositories is not news
             worst = min(fresh, key=lambda a: risk.SEVERITIES.index(a["severity"]) if a["severity"] in risk.SEVERITIES else 9)
             conn.execute("INSERT INTO fleet_events (login, repo_id, full_name, count, worst, titles, created_at) "

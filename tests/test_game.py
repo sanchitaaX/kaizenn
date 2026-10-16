@@ -326,3 +326,46 @@ def test_quiz_for_a_dashboard_problem_after_fix_all(demo):
     assert first["already"] is False and again["already"] is True and again["points"] == 0
     assert demo.get(f"/api/game/quiz/vuln/{vuln['id']}").json()["answered"]["correct"] == first["correct"]
     assert demo.get("/api/game/quiz/vuln/999999").status_code == 404
+
+
+def test_rebuilding_the_demo_does_not_pay_again(demo):
+    """XP is keyed by what was fixed (repository, file, line, weakness), not by ids a demo reset changes."""
+    demo.post("/api/profile/modes", json={"game_mode": True})
+    repo = demo.get("/api/fleet/repos?source=demo&min_score=0").json()["items"][0]
+    fixes = demo.post(f"/api/fleet/repos/{repo['id']}/fix-all").json()["fixes"]
+    demo.post(f"/api/fleet/repos/{repo['id']}/commit-all", json={"fix_ids": [f["fix_id"] for f in fixes]})
+    vuln = fixes[0]["vuln"]
+    q = demo.get(f"/api/game/quiz/vuln/{vuln['id']}").json()
+    demo.post(f"/api/game/quiz/vuln/{vuln['id']}", json={"choice": q["choices"][0]["key"]})
+    earned = demo.get("/api/game").json()["xp"]
+
+    demo.post("/api/fleet/demo/reset")  # every problem and fix gets a new id
+    repo = next(r for r in demo.get("/api/fleet/repos?source=demo&min_score=0&page=1").json()["items"]
+                if r["full_name"] == repo["full_name"])
+    fixes = demo.post(f"/api/fleet/repos/{repo['id']}/fix-all").json()["fixes"]
+    demo.post(f"/api/fleet/repos/{repo['id']}/commit-all", json={"fix_ids": [f["fix_id"] for f in fixes]})
+    again = next(f["vuln"] for f in fixes if f["vuln"]["file"] == vuln["file"] and f["vuln"]["line"] == vuln["line"])
+    answer = demo.post(f"/api/game/quiz/vuln/{again['id']}", json={"choice": q["choices"][0]["key"]}).json()
+    assert answer["already"] is True and answer["points"] == 0
+    assert demo.get("/api/game").json()["xp"] == earned
+
+
+def test_rerunning_the_same_commit_pays_once():
+    turn_on()
+    game.on_run_finished(LOGIN, 1, "done", "none_found", ref="me/shop@abc")
+    game.on_run_finished(LOGIN, 2, "done", "none_found", ref="me/shop@abc")
+    game.on_run_finished(LOGIN, 3, "done", "none_found", ref="ME/shop@abc".lower())
+    assert [e for e in game.state(LOGIN)["recent"] if e["kind"] == "run_clean"].__len__() == 1
+    game.on_run_finished(LOGIN, 4, "done", "none_found", ref="me/shop@def")  # a new push is new work
+    assert len([e for e in game.state(LOGIN)["recent"] if e["kind"] == "run_clean"]) == 2
+
+
+def test_quiz_only_for_your_own_fix(demo):
+    from app.fleet import fixer, store
+
+    demo.post("/api/profile/modes", json={"game_mode": True})
+    repo = demo.get("/api/fleet/repos?source=demo&min_score=0").json()["items"][1]
+    vuln = next(v for v in demo.get(f"/api/fleet/repos/{repo['id']}").json()["vulns"] if v["status"] == "open")
+    full = store.get_vuln(vuln["id"], ["demo"])
+    store.create_fix(vuln["id"], "someone-else", **fixer.demo_fix(full))  # another person's fix
+    assert demo.get(f"/api/game/quiz/vuln/{vuln['id']}").status_code == 404

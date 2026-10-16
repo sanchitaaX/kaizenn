@@ -403,7 +403,8 @@ def execute(run_id: int, token: str | None, target: dict | list | None = None, l
         verdict = final_verdict or res.get("verdict")
         _dismiss_rejected(row["repo"], res)
         _save(run_id, run.state, final_status, verdict)
-        game.on_run_finished(row["login"], run_id, final_status, verdict)
+        sha = (res.get("workspace") or {}).get("sha")
+        game.on_run_finished(row["login"], run_id, final_status, verdict, ref=f"{row['repo'].lower()}@{sha}" if sha else None)
         if base_job:
             try:
                 base_job.result()  # never delete the folder under a test run still going
@@ -414,15 +415,16 @@ def execute(run_id: int, token: str | None, target: dict | list | None = None, l
 
 
 def _dismiss_rejected(repo: str, res: dict) -> None:
-    """Mark the dashboard problems the agent found not exploitable, so the dashboard and the chat agree."""
-    ids = [int(r["id"][1:]) for r in res.get("rejected") or [] if r["id"][1:].isdigit()]
-    if not ids:
+    """Note on the dashboard problems the model judged not exploitable. A model's judgement is not evidence, so the
+    problems stay open and counted; a person dismisses them from the dashboard if they agree."""
+    notes = {int(r["id"][1:]): r.get("why") or "" for r in res.get("rejected") or [] if r["id"][1:].isdigit()}
+    if not notes:
         return
     try:
         from app.fleet import store  # the fleet imports the agent, so not at the top
-        res["dismissed"] = store.dismiss_vulns(repo, ids)
+        res["flagged_for_review"] = store.flag_not_exploitable(repo, notes)
     except Exception:
-        log.exception("Could not mark the rejected findings of %s", repo)
+        log.exception("Could not note the rejected findings of %s", repo)
 
 
 def _baseline(run: Run, ws: workspace.Workspace, res: dict) -> tuple[list, list, bool]:
