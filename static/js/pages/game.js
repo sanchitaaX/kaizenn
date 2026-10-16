@@ -102,6 +102,29 @@
       return state;
     }
 
+    // The snippet as a small editor: file tab, line numbers, and the line the agent flagged marked.
+    function codeView(q) {
+      const first = q.first_line || 1;
+      const rows = String(q.snippet || "").split("\n").map((text, i) => {
+        const n = first + i;
+        return el("div", "quiz-line" + (n === q.line ? " is-flagged" : ""), [el("span", "quiz-ln", String(n)), el("span", "quiz-src", text || " ")]);
+      });
+      const name = String(q.file || "").split("/").pop();
+      return el("div", "quiz-code", [
+        el("div", "quiz-tab", [el("span", "quiz-dots", [el("i"), el("i"), el("i")]), el("span", "quiz-file", name), el("span", "quiz-path", q.file)]),
+        el("pre", "quiz-pre", el("code", null, rows)),
+      ]);
+    }
+
+    function result(a) {
+      if (a.correct) {
+        return el("span", "quiz-result is-right", [el("strong", null, "Nice catch!"), " It is " + a.answer_label + ".",
+          a.points ? el("span", "quiz-gain", "+" + a.points + " XP") : null]);
+      }
+      return el("span", "quiz-result is-wrong", [el("strong", null, "Not quite."), " It is " + a.answer_label + ".",
+        a.points ? el("span", "quiz-gain", "+" + a.points + " XP for trying") : null]);
+    }
+
     // Resolves when the user answered or skipped, so the chat can then show the agent's result.
     // null when "Guess the bug" is switched off on the Quests page.
     function quiz(runId, stepsEl) {
@@ -118,27 +141,42 @@
         K.api("/api/game/quiz/" + runId).then((q) => {
           if (q.answered) { finish(); return; }
           stepsEl.classList.add("is-spoiler");
-          const status = el("p", "game-quiz-status", "Pick one before the agent shows its answer.");
-          const skip = btn("Skip", "btn btn-ghost btn-sm", finish);
-          const choices = el("div", "game-choices", q.choices.map((c) => btn(c.label, "chip", async (ev) => {
-            const picked = ev.currentTarget;
-            choices.querySelectorAll("button").forEach((x) => { x.disabled = true; });
-            skip.remove();
-            try {
-              const a = await K.api("/api/game/quiz/" + runId, { method: "POST", body: { choice: c.key } });
-              picked.classList.add(a.correct ? "is-right" : "is-wrong");
-              status.textContent = a.correct ? "Right: " + a.answer_label + "." : "Not quite. It is " + a.answer_label + ".";
-            } catch (err) {
-              status.textContent = err.message || "Could not check that answer.";
-            }
-            finish();
-          })));
-          post(el("div", "game-card game-quiz", [
-            el("p", "game-card-title", "Guess the bug · +30 XP"),
-            el("p", "game-quiz-where", q.file + ":" + q.line),
-            el("pre", "game-snippet", el("code", null, q.snippet)),
-            choices, status, skip,
-          ]));
+          const card = el("div", "quiz");
+          const status = el("div", "quiz-status", [el("span", "quiz-pulse"), "The agent's answer stays hidden until you pick"]);
+          const skip = btn("Skip this one", "quiz-skip", () => { card.classList.add("is-skipped"); status.replaceChildren("Skipped. Here is what the agent found."); skip.remove(); finish(); });
+          const choices = el("div", "quiz-choices", q.choices.map((c, i) => {
+            const b = btn([el("span", "quiz-letter", "ABCD"[i]), el("span", "quiz-label", c.label), el("span", "quiz-mark")], "quiz-choice", async () => {
+              choices.querySelectorAll("button").forEach((x) => { x.disabled = true; });
+              b.classList.add("is-picked");
+              skip.remove();
+              try {
+                const a = await K.api("/api/game/quiz/" + runId, { method: "POST", body: { choice: c.key } });
+                choices.querySelectorAll("button").forEach((x) => {
+                  if (x.dataset.key === a.answer) x.classList.add("is-right");
+                  else if (x === b) x.classList.add("is-wrong");
+                  else x.classList.add("is-out");
+                });
+                card.classList.add(a.correct ? "is-won" : "is-lost");
+                status.replaceChildren(result(a));
+              } catch (err) {
+                status.replaceChildren(err.message || "Could not check that answer.");
+              }
+              finish();
+            });
+            b.dataset.key = c.key;
+            return b;
+          }));
+          card.append(
+            el("div", "quiz-head", [
+              el("span", "quiz-icon", "?"),
+              el("div", "quiz-titles", [el("p", "quiz-title", "Guess the bug"), el("p", "quiz-sub", "Race the agent: what is wrong with this code?")]),
+              el("span", "quiz-xp", "+" + 30 + " XP"),
+            ]),
+            codeView(q),
+            choices,
+            el("div", "quiz-foot", [status, skip]),
+          );
+          post(card);
         }).catch(finish);
       });
     }
