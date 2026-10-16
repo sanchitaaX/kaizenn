@@ -271,7 +271,12 @@ def list_repos(workspaces: list[str], q: str = "", band: str = "", team: str = "
             args).fetchone()
         rows = conn.execute(f"SELECT * FROM fleet_repos WHERE {where} ORDER BY {order} LIMIT ? OFFSET ?",
                             [*args, per_page, (page - 1) * per_page]).fetchall()
-    items = [_repo_dict(r) | {"rank": (page - 1) * per_page + i + 1} for i, r in enumerate(rows)]
+        ids = [r["id"] for r in rows]
+        review = dict(conn.execute(
+            f"SELECT repo_id, COUNT(*) FROM fleet_vulns WHERE status = 'pr_open' AND repo_id IN ({','.join('?' * len(ids))}) "
+            "GROUP BY repo_id", ids).fetchall()) if ids else {}
+    items = [_repo_dict(r) | {"rank": (page - 1) * per_page + i + 1, "in_review": review.get(r["id"], 0)}
+             for i, r in enumerate(rows)]
     return {"items": items, "total": total, "major_total": major_total, "page": page, "per_page": per_page,
             "pages": max(1, -(-total // per_page)), "min_score": min_score}
 
@@ -519,6 +524,22 @@ def get_fix(fix_id: int) -> dict | None:
         return _fix_dict(conn.execute("SELECT * FROM fleet_fixes WHERE id = ?", (fix_id,)).fetchone())
 
 
+def mark_pr_open(full_name: str, vuln_ids: list[int], places: list[tuple[str, int]]) -> int:
+    """The agent's pull request for these problems is open: by id, or by file and line (a rescan may have
+    given the same problem a new id since the run started)."""
+    with _tx() as conn:
+        rows = conn.execute(
+            """SELECT v.id, v.repo_id, v.file, v.line FROM fleet_vulns v JOIN fleet_repos r ON r.id = v.repo_id
+               WHERE lower(r.full_name) = lower(?) AND r.workspace != ? AND v.status IN ('open', 'fix_saved')""",
+            (full_name, DEMO)).fetchall()
+        hit = [r for r in rows if r["id"] in set(vuln_ids) or (r["file"], r["line"]) in set(places)]
+        for r in hit:
+            conn.execute("UPDATE fleet_vulns SET status = 'pr_open' WHERE id = ?", (r["id"],))
+        for repo_id in {r["repo_id"] for r in hit}:
+            _recompute(conn, repo_id)
+    return len(hit)
+
+
 def latest_fix(vuln_id: int) -> dict | None:
     """The newest fix written for a problem, whatever happened to it since."""
     with _tx() as conn:
@@ -580,6 +601,14 @@ def save_github_repo(login: str, repo: dict, alerts: list[dict] | None, scan_sta
              db.iso(now), scan_status, repo.get("pushed_at")))
         repo_id = conn.execute("SELECT id FROM fleet_repos WHERE workspace = ? AND full_name = ?",
                                (ws, repo["full_name"])).fetchone()[0]
+        # A problem with an open pull request that the scan no longer reports: the pull request was merged.
+        if alerts is not None:
+            now_at = {(a["file"], a["line"], a["type"]) for a in alerts}
+            now_nums = {a["alert_number"] for a in alerts if a["alert_number"] is not None}
+            for r in conn.execute("SELECT id, alert_number, file, line, type FROM fleet_vulns WHERE repo_id = ? "
+                                  "AND status = 'pr_open'", (repo_id,)).fetchall():
+                if (r["alert_number"] not in now_nums) if r["alert_number"] is not None else                         ((r["file"], r["line"], r["type"]) not in now_at):
+                    conn.execute("UPDATE fleet_vulns SET status = 'fixed', fixed_at = ? WHERE id = ?", (db.iso(now), r["id"]))
         # Keep findings that already have a pull request or a fix; replace the rest with what GitHub says now.
         conn.execute("DELETE FROM fleet_vulns WHERE repo_id = ? AND status = 'open' AND id NOT IN "
                      "(SELECT vuln_id FROM fleet_fixes)", (repo_id,))

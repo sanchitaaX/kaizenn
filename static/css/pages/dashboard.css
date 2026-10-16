@@ -461,3 +461,8 @@ dialog::backdrop { background: rgba(43, 48, 59, 0.38); }
 .brief-tools { display: flex; align-items: center; gap: 2px; flex: none; }
 @media (max-width: 640px) { .brief-peek { display: none; } .brief-head { flex-wrap: wrap; } }
 .detail-cell .brief { position: sticky; left: 0; max-width: min(100%, calc(100vw - 140px)); box-sizing: border-box; }
+/* A repository whose problems already have a pull request */
+.pr-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: var(--r-pill); white-space: nowrap;
+  font-size: var(--fs-12); font-weight: 600; color: var(--accent-ink); background: var(--accent-tint); }
+.fix-all-stack { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.pr-note { font-size: 11px; color: var(--ink-soft); white-space: nowrap; }

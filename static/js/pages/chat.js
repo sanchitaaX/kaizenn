@@ -1117,33 +1117,94 @@
   }
 
   // The changed lines, always visible: file name on top, old and new line numbers in the gutter.
+  // A unified diff drawn like the dashboard's fix window: the current code on the left, the fixed code on the right,
+  // one block per file, removed and added lines paired up, and the exact words that changed marked.
   function changeView(diff) {
-    const lines = String(diff).replace(/\s+$/, "").split("\n");
     const files = [];
+    let file = null;
     let oldNo = 0;
     let newNo = 0;
-    const body = h("div", "change-lines");
-    lines.forEach((line) => {
-      if (line.startsWith("+++ ")) { files.push(line.slice(4).replace(/^b\//, "")); return; }
-      if (line.startsWith("--- ") || line.startsWith("diff ") || line.startsWith("index ")) return;
+    let dels = [];
+    let adds = [];
+    const flush = () => {
+      for (let i = 0; i < Math.max(dels.length, adds.length); i++) {
+        const o = dels[i];
+        const n = adds[i];
+        file.rows.push({ kind: o && n ? "change" : o ? "del" : "add", oldNo: o ? o.no : null, old: o ? o.text : null,
+          newNo: n ? n.no : null, new: n ? n.text : null });
+      }
+      dels = [];
+      adds = [];
+    };
+    String(diff).replace(/\s+$/, "").split("\n").forEach((line) => {
+      if (line.startsWith("diff ") || line.startsWith("index ")) return;
+      if (line.startsWith("--- ")) { if (file) flush(); file = { name: "", rows: [], added: 0, removed: 0 }; files.push(file); return; }
+      if (line.startsWith("+++ ")) { if (file) file.name = line.slice(4).replace(/^b\//, ""); return; }
+      if (!file) { file = { name: "", rows: [], added: 0, removed: 0 }; files.push(file); }
       const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/);
       if (hunk) {
+        flush();
         oldNo = parseInt(hunk[1], 10);
         newNo = parseInt(hunk[2], 10);
-        body.append(h("div", "change-line is-hunk", [h("span", "ln"), h("span", "ln"), h("span", "sign"), h("span", "code", (hunk[3] || "").trim() || "...")]));
+        file.rows.push({ kind: "hunk", text: (hunk[3] || "").trim() });
         return;
       }
-      let cls = "change-line";
-      let a = "";
-      let b = "";
-      let sign = " ";
-      if (line.startsWith("+")) { cls += " is-add"; b = newNo++; sign = "+"; }
-      else if (line.startsWith("-")) { cls += " is-del"; a = oldNo++; sign = "-"; }
-      else { a = oldNo++; b = newNo++; }
-      body.append(h("div", cls, [h("span", "ln", String(a)), h("span", "ln", String(b)), h("span", "sign", sign), h("span", "code", line.slice(1) || " ")]));
+      if (line.startsWith("-")) { dels.push({ no: oldNo++, text: line.slice(1) }); file.removed++; return; }
+      if (line.startsWith("+")) { adds.push({ no: newNo++, text: line.slice(1) }); file.added++; return; }
+      flush();
+      file.rows.push({ kind: "same", oldNo: oldNo++, old: line.slice(1), newNo: newNo++, new: line.slice(1) });
     });
-    const name = files[0] || "Changed file";
-    return h("div", "change", [h("div", "change-file", [svg("repo", 14), h("span", "mono", name)]), body]);
+    if (file) flush();
+    return h("div", "sbs-group", files.map(sideBySide));
+  }
+
+  // The part of two lines that differs, as [before, changed, after], so only the changed words are marked.
+  function wordParts(a, b) {
+    let i = 0;
+    while (i < a.length && i < b.length && a[i] === b[i]) i++;
+    let j = 0;
+    while (j < a.length - i && j < b.length - i && a[a.length - 1 - j] === b[b.length - 1 - j]) j++;
+    return [[a.slice(0, i), a.slice(i, a.length - j), a.slice(a.length - j)], [b.slice(0, i), b.slice(i, b.length - j), b.slice(b.length - j)]];
+  }
+
+  function sideBySide(f) {
+    const tbody = h("tbody");
+    f.rows.forEach((r) => {
+      if (r.kind === "hunk") {
+        const td = h("td", "sbs-hunk", r.text || "...");
+        td.colSpan = 4;
+        tbody.append(h("tr", null, td));
+        return;
+      }
+      const parts = r.kind === "change" ? wordParts(r.old, r.new) : null;
+      const cell = (text, cls, mark, words) => {
+        const td = h("td", "sbs-code " + cls);
+        if (text == null) return td;
+        td.append(h("span", "sbs-mark", mark));
+        if (words && words[1]) td.append(words[0], h("mark", "sbs-word", words[1]), words[2]);
+        else td.append(text || " ");
+        return td;
+      };
+      const oldCls = r.kind === "change" || r.kind === "del" ? "is-old" : r.kind === "add" ? "is-blank" : "";
+      const newCls = r.kind === "change" || r.kind === "add" ? "is-new" : r.kind === "del" ? "is-blank" : "";
+      tbody.append(h("tr", null, [
+        h("td", "sbs-ln " + oldCls, r.oldNo != null ? String(r.oldNo) : ""),
+        cell(r.old, oldCls, oldCls === "is-old" ? "−" : " ", parts && parts[0]),
+        h("td", "sbs-ln sbs-ln-new " + newCls, r.newNo != null ? String(r.newNo) : ""),
+        cell(r.new, newCls + " sbs-right", newCls === "is-new" ? "+" : " ", parts && parts[1]),
+      ]));
+    });
+    return h("div", "sbs", [
+      h("div", "sbs-file", [svg("repo", 14), h("span", "mono", f.name || "Changed file")]),
+      h("div", "sbs-head", [
+        h("div", null, [h("strong", null, "Current code"), h("span", "sbs-count", `−${f.removed}`)]),
+        h("div", null, [h("strong", null, "With the fix"), h("span", "sbs-count is-add", `+${f.added}`)])]),
+      h("div", "sbs-body", h("table", "sbs-table", [h("colgroup", null, ["40px", "", "40px", ""].map((w) => {
+        const c = h("col");
+        if (w) c.style.width = w;
+        return c;
+      })), tbody])),
+    ]);
   }
 
   function evidenceNode(evidence) {

@@ -720,3 +720,36 @@ def test_problems_the_agent_finds_not_exploitable_stop_counting(octo):
     store.save_github_repo("octo", {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop"}, alerts, "scanned")
     detail = client.get(f"/api/fleet/repos/{repo_id}").json()
     assert sorted(v["status"] for v in detail["vulns"]) == ["dismissed", "open"] and detail["repo"]["open_critical"] == 1
+
+
+def test_agent_pull_request_marks_the_problems_and_the_scan_after_the_merge_closes_them(octo, monkeypatch):
+    import json
+    from app import github
+    from app.agent import controller
+
+    client, repo_id = octo
+    alerts = [{"type": t, "title": n, "severity": "critical", "cwe": None, "file": f, "line": 9, "description": "x",
+               "alert_number": None, "alert_url": None, "first_seen_at": None, "source": "securefix"}
+              for t, n, f in (("SQL_INJECTION", "SQL injection", "db.py"), ("XSS", "Cross-site scripting", "web.py"))]
+    store.save_github_repo("octo", {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop"}, alerts, "scanned")
+    sql = next(v for v in client.get(f"/api/fleet/repos/{repo_id}").json()["vulns"] if v["file"] == "db.py")
+    # A rescan while the agent works gives the problem a new id; the pull request still finds it by file and line.
+    store.save_github_repo("octo", {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop"}, alerts, "scanned")
+    run_id = controller.create("octo", "octo/shop", None, None)
+    finding = {"id": f"A{sql['id']}", "title": "SQL injection", "file": "db.py", "line": 9}
+    run = controller.get(run_id, "octo")
+    run["state"]["result"] = {"verdict": "verified", "finding": finding, "files": {"db.py": "fixed"},
+                              "workspace": {"ref": "main", "sha": "abc"}, "patch": {"diff": "x"}}
+    controller._save(run_id, run["state"], "done", "verified")
+    for name in ("create_branch", "put_file"):
+        monkeypatch.setattr(github, name, lambda *a, **k: None)
+    monkeypatch.setattr(github, "get_file", lambda *a, **k: None)
+    monkeypatch.setattr(github, "create_pull_request", lambda *a, **k: {"number": 1, "url": "https://github.com/octo/shop/pull/1", "status": "open"})
+    assert client.post(f"/api/agent/runs/{run_id}/pull-request").json()["number"] == 1
+    status = lambda: {v["file"]: v["status"] for v in client.get(f"/api/fleet/repos/{repo_id}").json()["vulns"]}
+    assert status() == {"db.py": "pr_open", "web.py": "open"}
+    row = next(r for r in client.get("/api/fleet/repos?min_score=0&source=github").json()["items"] if r["id"] == repo_id)
+    assert row["in_review"] == 1
+    # Merged: the next scan no longer reports db.py, so it is fixed; web.py is still reported and stays open.
+    store.save_github_repo("octo", {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop"}, alerts[1:], "scanned")
+    assert status() == {"db.py": "fixed", "web.py": "open"}

@@ -145,8 +145,11 @@ def pull_request(run_id: int, user: dict = Depends(require_user)):
     run["state"]["result"]["pull_request"] = pr
     controller._save(run_id, run["state"])
     game.award_quietly(user["login"], "pr_opened", f"run-{run_id}")
-    if run.get("vuln_id"):
-        store.set_vuln_status(run["vuln_id"], "pr_open")
+    # The dashboard shows these problems as "Pull request open" until a scan after the merge no longer finds them.
+    fixed = [x["finding"] for x in res.get("fixes") or [] if x.get("verdict") != "failed"] or [f]
+    ids = [int(str(x.get("id"))[1:]) for x in fixed if str(x.get("id", "")).startswith("A") and str(x["id"])[1:].isdigit()]
+    store.mark_pr_open(repo, ids + ([run["vuln_id"]] if run.get("vuln_id") else []),
+                       [(x.get("file"), x.get("line")) for x in fixed if x.get("file")])
     return pr
 
 

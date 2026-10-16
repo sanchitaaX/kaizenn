@@ -432,7 +432,7 @@
       h("td", "num hide-sm" + (r.open_medium ? "" : " zero"), fmt(r.open_medium)),
       h("td", "num hide-sm" + (r.open_low ? "" : " zero"), fmt(r.open_low)),
       h("td", "hide-sm muted", r.last_scan_label),
-      h("td", "fix-all-cell", r.open_total ? fixAllButton(r) : null),
+      h("td", "fix-all-cell", fixAllCell(r)),
       h("td", "report-cell", reportLink(r)),
     ]);
     const cell = h("td", "detail-cell");
@@ -517,6 +517,16 @@
 
   // Fix all for one repository happens in the assistant: it lists every problem as it is handled, then shows all
   // the fixes with Commit all (demo: the prepared fixes; GitHub: one agent run and its pull request).
+  // Every open problem already has a pull request: say so instead of offering Fix all again.
+  function fixAllCell(r) {
+    if (!r.open_total) return null;
+    const review = r.in_review || 0;
+    if (review >= r.open_total) {
+      return h("span", "pr-pill", [icon("check", 12), review === 1 ? "Pull request open" : `${review} in a pull request`]);
+    }
+    return review ? h("div", "fix-all-stack", [fixAllButton(r), h("span", "pr-note", `${review} in a pull request`)]) : fixAllButton(r);
+  }
+
   function fixAllButton(r) {
     const btn = h("button", "btn btn-primary btn-sm fix-all", [icon("spark", 14), "Fix all"]);
     btn.type = "button";
@@ -616,15 +626,19 @@
     if (r.scan_status === "no_code_scanning") {
       body.append(h("p", "fix-error", "Code scanning is not turned on for this repository, so KAIZEN cannot see its problems yet. Turn on CodeQL in the repository's Settings, Code security."));
     }
-    const open = data.vulns.filter((v) => !CLOSED(v));
+    const open = data.vulns.filter((v) => !CLOSED(v) && v.status !== "pr_open");
+    const waiting = data.vulns.filter((v) => v.status === "pr_open");
     const done = data.vulns.filter((v) => v.status === "fixed");
     const cleared = data.vulns.filter((v) => v.status === "dismissed");
-    if (!open.length && r.scan_status === "scanned") {
+    if (!open.length && !waiting.length && r.scan_status === "scanned") {
       body.append(h("div", "empty", [h("span", "icon-tile", icon("check", 20)), h("p", "empty-title", "No open problems"),
         h("p", "empty-text", "Nothing to fix in this repository right now.")]));
     }
     if (open.length) body.append(h("p", "drawer-group", `Open problems (${open.length}), most serious first`));
     open.forEach((v) => body.append(vulnCard(v)));
+    if (waiting.length) body.append(h("p", "drawer-group", `Waiting for merge (${waiting.length}): a pull request fixes ${waiting.length === 1 ? "this one" : "these"}. ` +
+      "They still count until it is merged, then the next scan closes them."));
+    waiting.forEach((v) => body.append(vulnCard(v)));
     if (done.length) body.append(h("p", "drawer-group", `Fixed (${done.length})`));
     done.slice(0, 20).forEach((v) => body.append(vulnCard(v)));
     if (cleared.length) body.append(h("p", "drawer-group", `Not exploitable (${cleared.length}): the agent read the code and found no way in`));
