@@ -580,3 +580,24 @@ def test_quiz_is_kept_only_for_a_finding_that_got_fixed(monkeypatch):
     assert fixed["quiz_seed"]["file"] in {"shop/files.py", "shop/tools.py"}  # never the finding that was cleared
     none = fast_run(monkeypatch, FastScript(not_exploitable={"shop/db.py", "shop/files.py", "shop/tools.py"}))
     assert none["verdict"] == "none_found" and "quiz_seed" not in none["result"]
+
+
+def test_python_sql_built_from_placeholder_pieces_is_not_flagged():
+    from app.agent import rules
+    safe = ('rows = conn.execute(f"SELECT * FROM t WHERE id IN ({marks}) AND {where}", [*ids, *args])\n'
+            'conn.execute(f"UPDATE t SET {sets} WHERE login = ?", (*fields.values(), login))\n'
+            "top = conn.execute(f\"SELECT * FROM r WHERE {where} ORDER BY {SORTS['risk']} LIMIT ?\", [*args, 5])\n"
+            "conn.execute(f\"DELETE FROM a WHERE id IN ({','.join('?' * len(ids))})\", ids)\n")
+    assert rules.scan_text("store.py", safe) == []
+    for unsafe in ('conn.execute(f"SELECT * FROM t WHERE name = \'{name}\'")\n',
+                   'conn.execute(f"DELETE FROM {table} WHERE repo = ?", (repo,))\n',
+                   'conn.execute("SELECT * FROM t WHERE a = %s" % name)\n',
+                   'conn.execute(f"SELECT * FROM t WHERE {where} AND b = " + request.args["b"])\n',
+                   'conn.execute(f"SELECT * FROM t ORDER BY {order}")\n'):
+        assert [h["type"] for h in rules.scan_text("store.py", unsafe)] == ["SQL_INJECTION"], unsafe
+
+
+def test_a_step_still_running_when_the_run_ends_is_closed(monkeypatch):
+    run = fast_run(monkeypatch, FastScript(not_exploitable={"shop/db.py", "shop/files.py", "shop/tools.py"}))
+    assert run["verdict"] == "none_found"
+    assert all(s["status"] != "running" for s in run["state"]["steps"])

@@ -389,6 +389,11 @@ def execute(run_id: int, token: str | None, target: dict | list | None = None, l
         res["seconds"] = round(time.monotonic() - run.started, 1)
         res["commands"] = len(run.rec.commands)
         res["model_calls"] = len(run.calls.calls)
+        with run.lock:  # a step still going in the background (the existing tests) must not look stuck
+            for s in run.state["steps"]:
+                if s["status"] == "running":
+                    s["status"] = "skipped"
+                    s["note"] = "Not needed: there was nothing to fix" if final_verdict == "none_found" else                         "Stopped when the run ended"
         for s in run.state["steps"]:
             s.pop("t0", None)
         try:

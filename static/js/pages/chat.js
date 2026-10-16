@@ -1691,7 +1691,7 @@
       if (run !== S.run) return;
       head.lastChild.textContent = d.repo + (d.result.workspace ? " @ " + d.result.workspace.sha.slice(0, 7) : "");
       setRepoChip({ full_name: d.repo });
-      renderSteps(steps, d.steps);
+      renderSteps(steps, d.steps, d.status !== "running");
       if (d.status === "running") { S.pollTimer = setTimeout(tick, 1500); return; }
       S.agentRun = d.id;
       renderAgentResult(d);
@@ -1702,8 +1702,10 @@
     tick();
   }
 
-  function renderSteps(list, steps) {
+  // ended: the run is over, so a step left "running" (older runs) is drawn as skipped instead of spinning forever.
+  function renderSteps(list, steps, ended) {
     list.replaceChildren(...steps.map((st) => {
+      if (ended && st.status === "running") st = { ...st, status: "skipped" };
       const icon = st.status === "running" ? h("span", "spinner") : STEP_ICON[st.status] ? svg(STEP_ICON[st.status], 12) : null;
       return h("li", "agent-step is-" + st.status, [
         h("span", "agent-step-icon", icon),
@@ -1748,7 +1750,7 @@
       kids.push(h("ul", "fixall-list", rejected.map((x) => h("li", "fixall-item is-done", [
         h("span", "fixall-mark", svg("check", 14)),
         h("span", "fixall-what", [x.title + " is not exploitable", h("code", null, `${x.file}:${x.line}`),
-          x.why ? h("span", "fixall-why", x.why) : null])]))));
+          h("span", "fixall-why", x.why || "The agent found no way for an attacker's input to reach this code.")])]))));
     }
 
     if (fixes) {

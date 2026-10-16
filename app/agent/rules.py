@@ -99,12 +99,19 @@ def lang_of(path: str) -> str | None:
 #   pool.query(`SELECT ... WHERE ${conditions.join(' AND ')}`, params)   (conditions holds 'a.id = ?')
 # These interpolations only splice such pieces in; anything else (a value, req.*, a call) keeps the finding.
 # The name has to end in a clause word, so values such as ${orderId} or a user's ${sortColumn} still count.
-_SQL_PIECE = r"[\w.]*(conditions?|clauses?|where|joins?|select|sql)"
+# Python does the same with f-strings: conn.execute(f"... WHERE id IN ({marks}) AND {where}", [*ids, *args]).
+_SQL_PIECE = r"[\w.]*(conditions?|clauses?|where|joins?|select|sql|marks|placeholders)"
 _SAFE_PIECES = [re.compile(p, _I) for p in (
     _SQL_PIECE,                                                              # joinClause, assignmentSelect
     _SQL_PIECE + r"\.join\(\s*(['\"])[^'\"]*\2\s*\)",                        # conditions.join(' AND ')
     r"[\w.]+\.map\(\s*\(\s*\w*\s*\)\s*=>\s*(['\"])\?\1\s*\)\.join\(\s*(['\"])[^'\"]*\2\s*\)",  # ids.map(() => '?').join(',')
 )]
+_SAFE_PY_PIECES = [re.compile(p, _I) for p in (
+    r"[\w.]*(conditions?|clauses?|where|joins?|select|sql|marks|placeholders|sets)",  # marks, vwhere, sets
+    r"[A-Z][A-Z0-9_]*\[\s*(['\"])\w+\1\s*\]",                                # SORTS['risk']: a fixed table
+    r"(['\"])[^'\"]*\1\.join\(\s*(['\"])\?\2\s*\*\s*len\([\w.]+\)\s*\)",     # ",".join("?" * len(ids))
+)]
+_FSTRING = re.compile(r"""(?<![\w])[fF][rR]?("{3}|'{3}|"|')(.*?)\1""", re.S)
 
 
 def _sql_pieces_only(text: str, start: int) -> bool:
@@ -117,6 +124,27 @@ def _sql_pieces_only(text: str, start: int) -> bool:
     return bool(parts) and all(any(rx.fullmatch(p.strip()) for rx in _SAFE_PIECES) for p in parts)
 
 
+def _py_sql_pieces_only(text: str, start: int) -> bool:
+    """The Python version: every f-string in the call (or on the line) only splices in SQL pieces, and the query
+    is not also built with %, + or .format."""
+    end = text.find("\n", start)
+    end = len(text) if end < 0 else end
+    paren = text.find("(", start, end)
+    if paren >= 0 and re.match(r"\w+\s*\(", text[start:end]):  # the hit is the call: read to its closing bracket
+        depth = 0
+        for i in range(paren, min(len(text), paren + 2000)):
+            depth += {"(": 1, ")": -1}.get(text[i], 0)
+            if depth == 0:
+                end = i + 1
+                break
+    chunk = text[start:end]
+    if re.search(r"""["']\s*(%\s*[\w(]|\.format\(|\+\s*[\w(])""", chunk):
+        return False
+    parts = [p for _, body in _FSTRING.findall(chunk) for p in re.findall(r"(?<!\{)\{([^{}]+)\}(?!\})", body)]
+    return bool(parts) and all(any(rx.fullmatch(re.sub(r"(![rsa])?(:[^\[\]()'\"]*)?$", "", p).strip()) for rx in _SAFE_PY_PIECES)
+                               for p in parts)
+
+
 def scan_text(path: str, text: str) -> list[dict]:
     """[{type, line, match}] for every rule hit in one file (one hit per type and line)."""
     lang = lang_of(path)
@@ -127,7 +155,8 @@ def scan_text(path: str, text: str) -> list[dict]:
                 line = text.count("\n", 0, m.start()) + 1
                 if (kind, line) in seen:
                     continue
-                if kind == "SQL_INJECTION" and lang == "javascript" and _sql_pieces_only(text, m.start()):
+                if kind == "SQL_INJECTION" and (lang == "javascript" and _sql_pieces_only(text, m.start())
+                                                or lang == "python" and _py_sql_pieces_only(text, m.start())):
                     continue
                 seen.add((kind, line))
                 hits.append({"type": kind, "line": line, "match": m.group(0)[:120]})
