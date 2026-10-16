@@ -469,7 +469,7 @@
       cell.replaceChildren(h("p", "fix-error", err.message));
       return;
     }
-    const open = data.vulns.filter((v) => v.status !== "fixed");
+    const open = data.vulns.filter((v) => !CLOSED(v));
     const major = open.filter((v) => v.severity === "critical" || v.severity === "high");
     const list = h("ul", "major-vulns", major.map((v) => {
       const fixable = v.status === "open" || v.status === "fix_saved";
@@ -616,8 +616,9 @@
     if (r.scan_status === "no_code_scanning") {
       body.append(h("p", "fix-error", "Code scanning is not turned on for this repository, so KAIZEN cannot see its problems yet. Turn on CodeQL in the repository's Settings, Code security."));
     }
-    const open = data.vulns.filter((v) => v.status !== "fixed");
+    const open = data.vulns.filter((v) => !CLOSED(v));
     const done = data.vulns.filter((v) => v.status === "fixed");
+    const cleared = data.vulns.filter((v) => v.status === "dismissed");
     if (!open.length && r.scan_status === "scanned") {
       body.append(h("div", "empty", [h("span", "icon-tile", icon("check", 20)), h("p", "empty-title", "No open problems"),
         h("p", "empty-text", "Nothing to fix in this repository right now.")]));
@@ -626,6 +627,8 @@
     open.forEach((v) => body.append(vulnCard(v)));
     if (done.length) body.append(h("p", "drawer-group", `Fixed (${done.length})`));
     done.slice(0, 20).forEach((v) => body.append(vulnCard(v)));
+    if (cleared.length) body.append(h("p", "drawer-group", `Not exploitable (${cleared.length}): the agent read the code and found no way in`));
+    cleared.slice(0, 20).forEach((v) => body.append(vulnCard(v)));
   }
 
   // The owner's project brief (optional): a paragraph plus attached files (docs, notes, API descriptions, code).
@@ -823,7 +826,9 @@
     return box;
   }
 
-  const STATUS_TEXT = { fix_saved: "Fix saved, waiting for review", pr_open: "Pull request open", fixed: "Fixed" };
+  const STATUS_TEXT = { fix_saved: "Fix saved, waiting for review", pr_open: "Pull request open", fixed: "Fixed",
+    dismissed: "Not exploitable: the agent checked it" };
+  const CLOSED = (v) => v.status === "fixed" || v.status === "dismissed";
 
   function vulnCard(v) {
     const top = h("div", "vuln-top", [h("span", "sev sev-" + v.severity, SEV_LABEL[v.severity] || v.severity),
@@ -831,7 +836,7 @@
     const main = h("div", "vuln-main", [top, h("p", "vuln-plain", v.plain || v.description),
       h("p", "vuln-where", `${v.file}:${v.line} · found ${v.first_seen_label.toLowerCase()}`)]);
     if (STATUS_TEXT[v.status]) main.append(h("span", "vuln-state", [icon("check", 12), STATUS_TEXT[v.status]]));
-    const card = h("div", "vuln" + (v.status === "fixed" ? " is-fixed" : ""), main);
+    const card = h("div", "vuln" + (CLOSED(v) ? " is-fixed" : ""), main);
     if (v.status === "open" || v.status === "fix_saved") {
       const btn = h("button", "btn " + (v.status === "fix_saved" ? "btn-secondary" : "btn-primary") + " btn-sm",
         v.status === "fix_saved" ? "Review fix" : ["Fix", icon("spark", 14)]);

@@ -562,3 +562,14 @@ def test_agent_fixes_the_problems_it_is_handed_without_searching(monkeypatch):
     assert steps["discover"]["status"] == "skipped" and "Fixing 2 problems from the dashboard" in steps["discover"]["note"]
     assert [h["file"] for h in res["handling"]] == ["shop/db.py", "shop/files.py"]
     assert run["verdict"] == "verified" and sorted(x["finding"]["file"] for x in res["fixes"]) == ["shop/db.py", "shop/files.py"]
+
+
+def test_sql_built_from_placeholder_pieces_is_not_flagged():
+    from app.agent import rules
+    safe = ("const [rows] = await pool.query(\n  `SELECT a.* FROM t a ${joinClause}\n   WHERE ${conditions.join(' AND ')}\n"
+            "   AND a.id IN (${ids.map(() => '?').join(',')})`,\n  params\n);\n")
+    assert rules.scan_text("routes/a.js", safe) == []
+    for unsafe in ("pool.query(`SELECT * FROM t WHERE id = ${req.query.id}`);\n",
+                   "pool.query(`SELECT * FROM t ${joinClause} WHERE name = '${name}'`);\n",
+                   "pool.query(`SELECT * FROM t ORDER BY ${orderId}`);\n"):
+        assert [h["type"] for h in rules.scan_text("routes/a.js", unsafe)] == ["SQL_INJECTION"], unsafe

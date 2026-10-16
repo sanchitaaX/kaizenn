@@ -1447,6 +1447,25 @@
     try { window.parent.postMessage({ type: "kaizen:fleet-changed" }, location.origin); } catch (_) { /* not embedded */ }
   }
 
+  // After an agent run from Fix all: the dashboard catches up, and the chat says what is still open in the repository.
+  async function fixAllNext(repoId, name, d, run) {
+    notifyDashboard();
+    let left = null;
+    try {
+      const detail = await SF.api(`/api/fleet/repos/${repoId}`);
+      left = detail.vulns.filter((v) => v.status === "open").length;
+    } catch (_) { return; }
+    if (run !== S.run || left == null) return;
+    if (!left) {
+      assistant([p(`Every problem in ${name} has now been checked. The dashboard shows what was fixed and what was not exploitable.`)]);
+      return;
+    }
+    const again = button(`Check the next ${Math.min(left, 3)}`, "btn btn-primary btn-sm", () => startFixAll(repoId), "spark");
+    assistant([p(`${left} problem${left === 1 ? "" : "s"} still open in ${name}. The agent takes on up to 3 at a time, riskiest first.`),
+      h("div", "agent-actions", [again])]);
+    scrollEnd();
+  }
+
   async function startFixAll(repoId, kept) {
     closeRepoMenu(true);
     resetThread();
@@ -1488,7 +1507,7 @@
       }
       history.replaceState({}, "", "/chat?run=" + res.run);
       remember({ run: res.run }, true);
-      showRun(res.run, run, notifyDashboard);
+      showRun(res.run, run, (d) => fixAllNext(repoId, name, d, run));
       return;
     }
 
@@ -1671,7 +1690,7 @@
         renderAgentResult(d);
         afterAgent();
         if (GAME) GAME.refresh();
-        if (onDone) onDone();
+        if (onDone) onDone(d);
       };
       if (quiz) quiz.then(reveal); else reveal();
     };
@@ -1705,13 +1724,27 @@
       return;
     }
     const fixes = r.fixes && r.fixes.length > 1 ? r.fixes : null;
-    const [label, single, cls] = VERDICTS[r.verdict] || VERDICTS.inconclusive;
+    const rejected = r.rejected || [];
+    const cleared = r.verdict === "none_found" && rejected.length;  // the scanner flagged them, the agent cleared them
+    let [label, single, cls] = VERDICTS[r.verdict] || VERDICTS.inconclusive;
+    if (cleared) {
+      label = "Not exploitable";
+      single = `The scanner flagged ${rejected.length === 1 ? "this problem" : "these " + rejected.length + " problems"}, ` +
+        "but on reading the code the agent found no way to exploit " + (rejected.length === 1 ? "it" : "them") +
+        ". Nothing needs fixing there, so the dashboard now lists " + (rejected.length === 1 ? "it" : "them") + " as Not exploitable.";
+    }
     const held = fixes ? fixes.filter((x) => x.verdict === "verified").length : 0;
     const lead = !fixes ? single : r.verdict === "verified"
       ? `All ${fixes.length} vulnerabilities are fixed and the existing tests still pass.`
       : `${held} of ${fixes.length} fixes verified; read each one below.`;
-    const reasons = (r.reasons || []).length ? h("ul", "agent-reasons", r.reasons.map((x) => h("li", null, x))) : null;
+    const reasons = !cleared && (r.reasons || []).length ? h("ul", "agent-reasons", r.reasons.map((x) => h("li", null, x))) : null;
     kids.push(h("div", "agent-verdict " + cls, [h("strong", null, label), h("span", null, lead), reasons]));
+    if (rejected.length) {
+      kids.push(h("ul", "fixall-list", rejected.map((x) => h("li", "fixall-item is-done", [
+        h("span", "fixall-mark", svg("check", 14)),
+        h("span", "fixall-what", [x.title + " is not exploitable", h("code", null, `${x.file}:${x.line}`),
+          x.why ? h("span", "fixall-why", x.why) : null])]))));
+    }
 
     if (fixes) {
       fixes.forEach((x, i) => {

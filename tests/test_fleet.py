@@ -696,3 +696,27 @@ def test_push_brief_md_with_an_expired_github_sign_in_asks_to_sign_in_again(octo
     monkeypatch.setattr(github, "get_file", expired)
     r = client.post(f"/api/fleet/repos/{repo_id}/brief/github", json={"body": "## Overview\nShop API."})
     assert r.status_code == 401 and "Sign in with GitHub again" in r.json()["detail"]
+
+
+def test_problems_the_agent_finds_not_exploitable_stop_counting(octo):
+    from app.agent import controller
+
+    client, repo_id = octo
+    alerts = [{"type": "SQL_INJECTION", "title": "SQL injection", "severity": "critical", "cwe": "CWE-89", "file": f,
+               "line": 7, "description": "x", "alert_number": None, "alert_url": None, "first_seen_at": None,
+               "source": "securefix"} for f in ("a.js", "b.js")]
+    store.save_github_repo("octo", {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop"}, alerts, "scanned")
+    vulns = client.get(f"/api/fleet/repos/{repo_id}").json()["vulns"]
+    first = next(v for v in vulns if v["file"] == "a.js")
+    res = {"rejected": [{"id": f"A{first['id']}", "title": "SQL injection", "file": "a.js", "line": 7, "why": "uses ? parameters"}]}
+    controller._dismiss_rejected("OCTO/shop", res)
+    assert res["dismissed"] == 1
+    detail = client.get(f"/api/fleet/repos/{repo_id}").json()
+    assert detail["repo"]["open_critical"] == 1
+    assert {v["file"]: v["status"] for v in detail["vulns"]} == {"a.js": "dismissed", "b.js": "open"}
+    # Another repository's name, or a problem that is no longer open, changes nothing.
+    assert store.dismiss_vulns("octo/other", [first["id"]]) == 0
+    # A new scan that reports the same line again does not bring it back.
+    store.save_github_repo("octo", {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop"}, alerts, "scanned")
+    detail = client.get(f"/api/fleet/repos/{repo_id}").json()
+    assert sorted(v["status"] for v in detail["vulns"]) == ["dismissed", "open"] and detail["repo"]["open_critical"] == 1

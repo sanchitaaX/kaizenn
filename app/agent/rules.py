@@ -95,6 +95,28 @@ def lang_of(path: str) -> str | None:
     return None
 
 
+# A query built from pieces of SQL, with the values still passed as ? parameters, is not an injection:
+#   pool.query(`SELECT ... WHERE ${conditions.join(' AND ')}`, params)   (conditions holds 'a.id = ?')
+# These interpolations only splice such pieces in; anything else (a value, req.*, a call) keeps the finding.
+# The name has to end in a clause word, so values such as ${orderId} or a user's ${sortColumn} still count.
+_SQL_PIECE = r"[\w.]*(conditions?|clauses?|where|joins?|select|sql)"
+_SAFE_PIECES = [re.compile(p, _I) for p in (
+    _SQL_PIECE,                                                              # joinClause, assignmentSelect
+    _SQL_PIECE + r"\.join\(\s*(['\"])[^'\"]*\2\s*\)",                        # conditions.join(' AND ')
+    r"[\w.]+\.map\(\s*\(\s*\w*\s*\)\s*=>\s*(['\"])\?\1\s*\)\.join\(\s*(['\"])[^'\"]*\2\s*\)",  # ids.map(() => '?').join(',')
+)]
+
+
+def _sql_pieces_only(text: str, start: int) -> bool:
+    """True when the template literal of a JavaScript SQL hit only splices in SQL pieces (see _SAFE_PIECES)."""
+    open_ = text.find("`", start)
+    close = text.find("`", open_ + 1) if open_ >= 0 else -1
+    if open_ < 0 or close < 0:
+        return False
+    parts = re.findall(r"\$\{([^{}]*)\}", text[open_:close])
+    return bool(parts) and all(any(rx.fullmatch(p.strip()) for rx in _SAFE_PIECES) for p in parts)
+
+
 def scan_text(path: str, text: str) -> list[dict]:
     """[{type, line, match}] for every rule hit in one file (one hit per type and line)."""
     lang = lang_of(path)
@@ -104,6 +126,8 @@ def scan_text(path: str, text: str) -> list[dict]:
             for m in rx.finditer(text):
                 line = text.count("\n", 0, m.start()) + 1
                 if (kind, line) in seen:
+                    continue
+                if kind == "SQL_INJECTION" and lang == "javascript" and _sql_pieces_only(text, m.start()):
                     continue
                 seen.add((kind, line))
                 hits.append({"type": kind, "line": line, "match": m.group(0)[:120]})

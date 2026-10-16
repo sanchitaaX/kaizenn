@@ -519,6 +519,24 @@ def get_fix(fix_id: int) -> dict | None:
         return _fix_dict(conn.execute("SELECT * FROM fleet_fixes WHERE id = ?", (fix_id,)).fetchone())
 
 
+def dismiss_vulns(full_name: str, vuln_ids: list[int]) -> int:
+    """The agent read these open problems of one repository and found them not exploitable: they stop counting."""
+    if not vuln_ids:
+        return 0
+    now = db.now()
+    marks = ",".join("?" * len(vuln_ids))
+    with _tx() as conn:
+        rows = conn.execute(
+            f"""SELECT v.id, v.repo_id FROM fleet_vulns v JOIN fleet_repos r ON r.id = v.repo_id
+                WHERE v.id IN ({marks}) AND v.status = 'open' AND lower(r.full_name) = lower(?)""",
+            [*vuln_ids, full_name]).fetchall()
+        for r in rows:
+            conn.execute("UPDATE fleet_vulns SET status = 'dismissed', fixed_at = ? WHERE id = ?", (db.iso(now), r["id"]))
+        for repo_id in {r["repo_id"] for r in rows}:
+            _recompute(conn, repo_id, now)
+    return len(rows)
+
+
 def decide_fix(fix_id: int, status: str, vuln_status: str | None, **fields) -> dict:
     """Record Commit / Save / Discard on a fix and move its vulnerability to `vuln_status` (None leaves it)."""
     now = db.now()

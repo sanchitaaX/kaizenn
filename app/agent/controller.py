@@ -273,10 +273,16 @@ def execute(run_id: int, token: str | None, target: dict | list | None = None, l
             if all(isinstance(x, Exception) for x in answers):
                 raise answers[0]
             targets = [(f, x) for f, x in zip(picked, answers) if isinstance(x, Exception) or x["exploitable"]]
+            causes = answers
         else:
             with ThreadPoolExecutor(max_workers=max(1, len(picked))) as pool:
                 causes = list(pool.map(lambda f: analyze.root_cause(ws, f, run.calls), picked))
             targets = [(f, c) for f, c in zip(picked, causes) if c["exploitable"]][:MAX_FIXES]
+        # Dashboard problems the model read and found not exploitable: the dashboard marks them so (see finally).
+        res["rejected"] = [{"id": f["id"], "title": f["title"], "file": f["file"], "line": f["line"],
+                            "why": model.short(c.get("plain") or c.get("technical") or "", 300)}
+                           for f, c in zip(picked, causes)
+                           if not isinstance(c, Exception) and not c["exploitable"] and str(f.get("id", "")).startswith("A")]
         if not targets:
             run.step("analyze", "done", "On closer reading none of the findings is exploitable")
             for k in ("sectest", "patch", "verify"):
@@ -386,6 +392,7 @@ def execute(run_id: int, token: str | None, target: dict | list | None = None, l
         except OSError:
             log.exception("Could not write evidence for run %s", run_id)
         verdict = final_verdict or res.get("verdict")
+        _dismiss_rejected(row["repo"], res)
         _save(run_id, run.state, final_status, verdict)
         game.on_run_finished(row["login"], run_id, final_status, verdict)
         if base_job:
@@ -395,6 +402,18 @@ def execute(run_id: int, token: str | None, target: dict | list | None = None, l
                 pass
         if ws:
             ws.cleanup()
+
+
+def _dismiss_rejected(repo: str, res: dict) -> None:
+    """Mark the dashboard problems the agent found not exploitable, so the dashboard and the chat agree."""
+    ids = [int(r["id"][1:]) for r in res.get("rejected") or [] if r["id"][1:].isdigit()]
+    if not ids:
+        return
+    try:
+        from app.fleet import store  # the fleet imports the agent, so not at the top
+        res["dismissed"] = store.dismiss_vulns(repo, ids)
+    except Exception:
+        log.exception("Could not mark the rejected findings of %s", repo)
 
 
 def _baseline(run: Run, ws: workspace.Workspace, res: dict) -> tuple[list, list, bool]:
