@@ -745,6 +745,7 @@ def test_agent_pull_request_marks_the_problems_and_the_scan_after_the_merge_clos
         monkeypatch.setattr(github, name, lambda *a, **k: None)
     monkeypatch.setattr(github, "get_file", lambda *a, **k: None)
     monkeypatch.setattr(github, "create_pull_request", lambda *a, **k: {"number": 1, "url": "https://github.com/octo/shop/pull/1", "status": "open"})
+    monkeypatch.setattr(github, "get_pull_request", lambda *a, **k: {"state": "open", "merged": False})
     assert client.post(f"/api/agent/runs/{run_id}/pull-request").json()["number"] == 1
     status = lambda: {v["file"]: v["status"] for v in client.get(f"/api/fleet/repos/{repo_id}").json()["vulns"]}
     assert status() == {"db.py": "pr_open", "web.py": "open"}
@@ -752,4 +753,74 @@ def test_agent_pull_request_marks_the_problems_and_the_scan_after_the_merge_clos
     assert row["in_review"] == 1
     # Merged: the next scan no longer reports db.py, so it is fixed; web.py is still reported and stays open.
     store.save_github_repo("octo", {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop"}, alerts[1:], "scanned")
+    assert status() == {"db.py": "fixed", "web.py": "open"}
+
+
+def _agent_pr(client, monkeypatch, number: int, alerts: list[dict]) -> None:
+    """Open the agent's pull request `number` for the SQL injection in db.py (GitHub calls faked)."""
+    from app import github
+    from app.agent import controller
+
+    sql = next(v for v in store.get_repo(store.repo_by_name("gh:octo", "octo/shop")["id"], ["gh:octo"])["vulns"]
+               if v["file"] == "db.py" and v["status"] == "open")
+    run_id = controller.create("octo", "octo/shop", None, None)
+    run = controller.get(run_id, "octo")
+    run["state"]["result"] = {"verdict": "verified", "finding": {"id": f"A{sql['id']}", "title": "SQL injection",
+                                                                 "file": "db.py", "line": 9},
+                              "files": {"db.py": "fixed"}, "workspace": {"ref": "main", "sha": "abc"},
+                              "patch": {"diff": "x"}}
+    controller._save(run_id, run["state"], "done", "verified")
+    for name in ("create_branch", "put_file", "get_file"):
+        monkeypatch.setattr(github, name, lambda *a, **k: None)
+    monkeypatch.setattr(github, "create_pull_request",
+                        lambda *a, **k: {"number": number, "url": f"https://github.com/octo/shop/pull/{number}", "status": "open"})
+    assert client.post(f"/api/agent/runs/{run_id}/pull-request").json()["number"] == number
+
+
+def test_agent_pull_request_closed_without_merging_puts_the_problems_back_to_open(octo, monkeypatch):
+    from app import github
+    from app.fleet import watch
+
+    client, repo_id = octo
+    alerts = [{"type": t, "title": n, "severity": "critical", "cwe": None, "file": f, "line": 9, "description": "x",
+               "alert_number": None, "alert_url": None, "first_seen_at": None, "source": "securefix"}
+              for t, n, f in (("SQL_INJECTION", "SQL injection", "db.py"), ("XSS", "Cross-site scripting", "web.py"))]
+    repo = {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop"}
+    store.save_github_repo("octo", repo, alerts, "scanned")
+    prs = {1: {"state": "open", "merged": False}, 2: {"state": "open", "merged": False},
+           3: {"state": "open", "merged": False}}
+    asked = []
+    monkeypatch.setattr(github, "get_pull_request", lambda token, name, n: asked.append((name, n)) or prs[n])
+    # Code scanning is off for this repository, so read_repo scans it with KAIZEN's own scanners.
+    def no_scanning(*a, **k):
+        raise github.GitHubError("off", 404)
+    monkeypatch.setattr(github, "list_code_scanning_alerts", no_scanning)
+    scan = {"alerts": alerts}
+    monkeypatch.setattr(watch.selfscan, "scan", lambda token, r: scan["alerts"])
+    status = lambda: {v["file"]: v["status"] for v in client.get(f"/api/fleet/repos/{repo_id}").json()["vulns"]}
+
+    _agent_pr(client, monkeypatch, 1, alerts)
+    assert store.open_pull_requests(repo_id) == [1]
+    assert status() == {"db.py": "pr_open", "web.py": "open"}  # the panel asked GitHub: still open
+    assert ("octo/shop", 1) in asked
+
+    # Closed without merging: the next read of the repository puts db.py back to open, so Fix all picks it up.
+    prs[1] = {"state": "closed", "merged": False}
+    assert watch.read_repo("octo", "gho_test", repo) == "scanned"
+    assert status() == {"db.py": "open", "web.py": "open"}
+    assert store.open_pull_requests(repo_id) == []
+    row = next(r for r in client.get("/api/fleet/repos?min_score=0&source=github").json()["items"] if r["id"] == repo_id)
+    assert row["in_review"] == 0 and row["open_total"] == 2
+
+    # The repository panel does the same check when it opens.
+    _agent_pr(client, monkeypatch, 2, alerts)
+    assert status() == {"db.py": "pr_open", "web.py": "open"}
+    prs[2] = {"state": "closed", "merged": False}
+    assert status() == {"db.py": "open", "web.py": "open"}
+
+    # Merged: the problem is not reopened, and the scan that no longer reports it marks it fixed.
+    _agent_pr(client, monkeypatch, 3, alerts)
+    prs[3] = {"state": "closed", "merged": True}
+    scan["alerts"] = alerts[1:]
+    watch.read_repo("octo", "gho_test", repo)
     assert status() == {"db.py": "fixed", "web.py": "open"}

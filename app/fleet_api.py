@@ -211,6 +211,11 @@ def repo_detail(repo_id: int, user: dict = Depends(require_user)):
     found = store.get_repo(repo_id, _workspaces(user))
     if not found:
         raise HTTPException(status_code=404, detail="That repository was not found.")
+    token = user_token(user)
+    # An agent pull request closed without merging puts its problems back to open (one GitHub call per open PR).
+    if token and found["repo"]["workspace"] == f"gh:{user['login']}" and store.open_pull_requests(repo_id):
+        if watch.check_pull_requests(user["login"], token, found["repo"]["full_name"]):
+            found = store.get_repo(repo_id, _workspaces(user))
     for v in found["vulns"]:
         v["plain"] = catalog.info(v["type"])["plain"]
     found["brief_files"] = store.get_brief(repo_id)["files"]

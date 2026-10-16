@@ -58,12 +58,15 @@ def to_vuln(alert: dict) -> dict:
 
 
 def _run(login: str, token: str) -> None:
+    from app.fleet import watch  # watch imports this module
+
     try:
         repos = github.list_all_repos(token, MAX_REPOS)
         store.set_sync(login, total=len(repos))
         scanned = no_scanning = errors = 0
         for i, r in enumerate(repos, start=1):
             r = {**r, "team": r["full_name"].split("/")[0]}
+            watch.check_pull_requests(login, token, r["full_name"])
             try:
                 alerts = github.list_code_scanning_alerts(token, r["full_name"])
                 store.save_github_repo(login, r, [to_vuln(a) for a in alerts], "scanned")

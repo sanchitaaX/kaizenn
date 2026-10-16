@@ -29,9 +29,26 @@ _started = False
 _lock = threading.Lock()
 
 
+def check_pull_requests(login: str, token: str, full_name: str) -> int:
+    """Ask GitHub about the agent's open pull requests on one repository. One closed without merging puts its
+    problems back to open (a merged one is left to the next scan, which no longer reports them). Returns how
+    many problems were reopened."""
+    repo = store.repo_by_name(f"gh:{login}", full_name)
+    reopened = 0
+    for number in store.open_pull_requests(repo["id"]) if repo else []:
+        try:
+            pr = github.get_pull_request(token, full_name, number)
+        except github.GitHubError:
+            continue  # try again on the next read
+        if pr["state"] == "closed" and not pr["merged"]:
+            reopened += store.reopen_pull_request(repo["id"], number)
+    return reopened
+
+
 def read_repo(login: str, token: str, repo: dict) -> str:
     """Re-read one repository's open alerts. Returns its scan status."""
     repo = {**repo, "team": repo.get("team") or repo["full_name"].split("/")[0]}
+    check_pull_requests(login, token, repo["full_name"])
     try:
         alerts = github.list_code_scanning_alerts(token, repo["full_name"])
     except github.GitHubError as exc:

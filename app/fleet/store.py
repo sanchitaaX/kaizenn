@@ -108,6 +108,13 @@ CREATE TABLE IF NOT EXISTS fleet_brief_files (
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS fleet_brief_files_by_repo ON fleet_brief_files (repo_id);
+-- The agent's pull request for each problem marked pr_open, so closing it unmerged can put the problem back.
+CREATE TABLE IF NOT EXISTS fleet_vuln_prs (
+    vuln_id    INTEGER PRIMARY KEY,
+    pr_number  INTEGER NOT NULL,
+    pr_url     TEXT,
+    opened_at  TEXT NOT NULL
+);
 """
 
 DEFAULT_MIN_SCORE = 80
@@ -524,9 +531,9 @@ def get_fix(fix_id: int) -> dict | None:
         return _fix_dict(conn.execute("SELECT * FROM fleet_fixes WHERE id = ?", (fix_id,)).fetchone())
 
 
-def mark_pr_open(full_name: str, vuln_ids: list[int], places: list[tuple[str, int]]) -> int:
+def mark_pr_open(full_name: str, vuln_ids: list[int], places: list[tuple[str, int]], pr: dict | None = None) -> int:
     """The agent's pull request for these problems is open: by id, or by file and line (a rescan may have
-    given the same problem a new id since the run started)."""
+    given the same problem a new id since the run started). `pr` ({number, url}) is remembered per problem."""
     with _tx() as conn:
         rows = conn.execute(
             """SELECT v.id, v.repo_id, v.file, v.line FROM fleet_vulns v JOIN fleet_repos r ON r.id = v.repo_id
@@ -535,9 +542,34 @@ def mark_pr_open(full_name: str, vuln_ids: list[int], places: list[tuple[str, in
         hit = [r for r in rows if r["id"] in set(vuln_ids) or (r["file"], r["line"]) in set(places)]
         for r in hit:
             conn.execute("UPDATE fleet_vulns SET status = 'pr_open' WHERE id = ?", (r["id"],))
+            if pr and pr.get("number"):
+                conn.execute("INSERT OR REPLACE INTO fleet_vuln_prs (vuln_id, pr_number, pr_url, opened_at) "
+                             "VALUES (?, ?, ?, ?)", (r["id"], int(pr["number"]), pr.get("url"), db.iso(db.now())))
         for repo_id in {r["repo_id"] for r in hit}:
             _recompute(conn, repo_id)
     return len(hit)
+
+
+def open_pull_requests(repo_id: int) -> list[int]:
+    """Numbers of the agent's pull requests that still hold problems of this repository at pr_open."""
+    with _tx() as conn:
+        return [r[0] for r in conn.execute(
+            """SELECT DISTINCT p.pr_number FROM fleet_vuln_prs p JOIN fleet_vulns v ON v.id = p.vuln_id
+               WHERE v.repo_id = ? AND v.status = 'pr_open' ORDER BY p.pr_number""", (repo_id,))]
+
+
+def reopen_pull_request(repo_id: int, pr_number: int) -> int:
+    """The pull request was closed without merging: its problems count as open again."""
+    with _tx() as conn:
+        ids = [r[0] for r in conn.execute(
+            """SELECT v.id FROM fleet_vuln_prs p JOIN fleet_vulns v ON v.id = p.vuln_id
+               WHERE v.repo_id = ? AND p.pr_number = ? AND v.status = 'pr_open'""", (repo_id, pr_number))]
+        for vuln_id in ids:
+            conn.execute("UPDATE fleet_vulns SET status = 'open' WHERE id = ?", (vuln_id,))
+            conn.execute("DELETE FROM fleet_vuln_prs WHERE vuln_id = ?", (vuln_id,))
+        if ids:
+            _recompute(conn, repo_id)
+    return len(ids)
 
 
 def latest_fix(vuln_id: int) -> dict | None:

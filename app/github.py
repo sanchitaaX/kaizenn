@@ -186,6 +186,12 @@ def create_pull_request(token: str, full_name: str, head: str, base: str, title:
     return {"number": pr["number"], "url": pr["html_url"], "status": pr.get("state", "open")}
 
 
+def get_pull_request(token: str, full_name: str, number: int) -> dict:
+    """A pull request's state: {"state": "open" | "closed", "merged": bool}."""
+    pr = _get(token, f"/repos/{full_name}/pulls/{number}")
+    return {"state": pr.get("state", "open"), "merged": bool(pr.get("merged") or pr.get("merged_at"))}
+
+
 # --------------------------------------------------------------------------- files, branches, commits
 
 

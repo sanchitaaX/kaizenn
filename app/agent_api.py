@@ -149,7 +149,7 @@ def pull_request(run_id: int, user: dict = Depends(require_user)):
     fixed = [x["finding"] for x in res.get("fixes") or [] if x.get("verdict") != "failed"] or [f]
     ids = [int(str(x.get("id"))[1:]) for x in fixed if str(x.get("id", "")).startswith("A") and str(x["id"])[1:].isdigit()]
     store.mark_pr_open(repo, ids + ([run["vuln_id"]] if run.get("vuln_id") else []),
-                       [(x.get("file"), x.get("line")) for x in fixed if x.get("file")])
+                       [(x.get("file"), x.get("line")) for x in fixed if x.get("file")], pr)
     return pr
 
 
