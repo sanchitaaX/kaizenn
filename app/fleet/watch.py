@@ -54,14 +54,14 @@ def read_repo(login: str, token: str, repo: dict) -> str:
     except github.GitHubError as exc:
         if exc.status_code in (403, 404):  # code scanning off: scan the code with KAIZEN's own scanners
             try:
-                store.save_github_repo(login, repo, selfscan.scan(token, repo), "scanned")
+                store.save_github_repo(login, repo, selfscan.scan(token, repo), "scanned", from_push=True)
                 return "scanned"
             except Exception:
                 log.exception("KAIZEN scan of %s failed", repo["full_name"])
         status = "no_code_scanning" if exc.status_code in (403, 404) else "error"
         store.save_github_repo(login, repo, None, status)
         return status
-    store.save_github_repo(login, repo, [sync.to_vuln(a) for a in alerts], "scanned")
+    store.save_github_repo(login, repo, [sync.to_vuln(a) for a in alerts], "scanned", from_push=True)
     return "scanned"
 
 

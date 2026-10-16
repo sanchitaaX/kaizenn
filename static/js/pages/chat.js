@@ -1521,8 +1521,8 @@
       assistant([p(`Every problem in ${name} has now been checked. The dashboard shows what was fixed and what was not exploitable.`)]);
       return;
     }
-    const again = button(`Check the next ${Math.min(left, 3)}`, "btn btn-primary btn-sm", () => startFixAll(repoId), "spark");
-    assistant([p(`${left} problem${left === 1 ? "" : "s"} still open in ${name}. The agent takes on up to 3 at a time, riskiest first.`),
+    const again = button(`Check the next ${Math.min(left, 4)}`, "btn btn-primary btn-sm", () => startFixAll(repoId), "spark");
+    assistant([p(`${left} problem${left === 1 ? "" : "s"} still open in ${name}. The agent takes on up to 4 at a time, riskiest first.`),
       h("div", "agent-actions", [again])]);
     scrollEnd();
   }

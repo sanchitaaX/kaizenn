@@ -154,7 +154,7 @@ def _ask(ws: Workspace, finding: dict, log: model.CallLog, use_model: str, feedb
                   "flow": [model.short(x, 160) for x in model.as_list(data.get("flow"))][:8],
                   "exploit_input": model.short(data.get("exploit_input"), 300),
                   "fix_strategy": model.short(data.get("fix_strategy"), 400), "must_keep": model.short(data.get("must_keep"), 400)},
-        "test": {"path": f"{sectest.DIR}/{name}", "code": _unescape(str(test.get("code") or "")),
+        "test": {"path": f"{sectest.DIR}/{name}", "code": sectest.as_test(_unescape(str(test.get("code") or "")), name),
                  "attack": model.short(data.get("exploit_input"), 300), "explanation": model.short(test.get("explanation"), 400)},
         "edits": [{"file": str(e["file"] or finding["file"]).replace("\\", "/"), "find": e["find"], "replace": e["replace"]}
                   for e in edits][:6],

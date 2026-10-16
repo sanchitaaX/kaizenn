@@ -466,3 +466,15 @@ dialog::backdrop { background: rgba(43, 48, 59, 0.38); }
   font-size: var(--fs-12); font-weight: 600; color: var(--accent-ink); background: var(--accent-tint); }
 .fix-all-stack { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .pr-note { font-size: 11px; color: var(--ink-soft); white-space: nowrap; }
+/* Problems a push just flagged */
+.flagged { margin: 0 0 var(--s-5); padding: var(--s-3) var(--s-4); border-radius: var(--r-md); background: var(--surface);
+  border: 1px solid var(--alert-tint-2); box-shadow: inset 4px 0 0 var(--alert); }
+.flagged-head { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-2); }
+.flagged-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--alert); box-shadow: 0 0 0 4px var(--alert-tint); }
+.flagged-head .spacer { flex: 1; }
+.flagged-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-2); }
+.flagged-row { display: flex; align-items: center; gap: var(--s-3); }
+.flagged-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.flagged-text .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.new-badge { padding: 1px 8px; border-radius: var(--r-pill); font-size: 11px; font-weight: 700; color: #fff; background: var(--alert); }
+@media (max-width: 560px) { .flagged-row { flex-wrap: wrap; } .flagged-text .small { white-space: normal; } }

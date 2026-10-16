@@ -850,6 +850,7 @@
     const main = h("div", "vuln-main", [top, h("p", "vuln-plain", v.plain || v.description),
       h("p", "vuln-where", `${v.file}:${v.line} · found ${v.first_seen_label.toLowerCase()}`)]);
     if (STATUS_TEXT[v.status]) main.append(h("span", "vuln-state", [icon("check", 12), STATUS_TEXT[v.status]]));
+    if (v.is_new) top.append(h("span", "new-badge", "New"));
     const card = h("div", "vuln" + (CLOSED(v) ? " is-fixed" : ""), main);
     if (v.status === "open" || v.status === "fix_saved") {
       const btn = h("button", "btn " + (v.status === "fix_saved" ? "btn-secondary" : "btn-primary") + " btn-sm",
@@ -1264,8 +1265,47 @@
   }).catch(() => {});
   ownerLabel();
 
+  // Every push to the person's GitHub is checked in the background (app/fleet/watch.py). What a check newly
+  // flags shows here as a banner (and a toast once), with a way to open that repository.
+  const flagged = $("flagged");
+  const toasted = new Set();
+  async function loadEvents() {
+    if (!flagged) return;
+    let list = [];
+    try { list = (await SF.api("/api/fleet/events")).events || []; } catch (_) { return; }
+    list.filter((e) => !toasted.has(e.id)).forEach((e) => {
+      toasted.add(e.id);
+      SF.toast(`${e.full_name}: ${e.count} new problem${e.count === 1 ? "" : "s"} flagged`);
+    });
+    if (!list.length) { flagged.hidden = true; flagged.replaceChildren(); return; }
+    const seen = async (ids) => {
+      try { await SF.api("/api/fleet/events/seen", { method: "POST", body: { ids } }); } catch (_) { /* try again later */ }
+      loadEvents();
+    };
+    const rows = list.map((e) => {
+      const show = h("button", "btn btn-primary btn-sm", "Show");
+      show.type = "button";
+      show.addEventListener("click", () => { seen([e.id]); openRepo(e.repo_id); });
+      return h("li", "flagged-row", [
+        h("span", "sev sev-" + (e.worst || "high"), SEV_LABEL[e.worst] || "New"),
+        h("div", "flagged-text", [
+          h("strong", null, `${e.count} new problem${e.count === 1 ? "" : "s"} in ${e.full_name}`),
+          h("span", "muted small", `${e.titles} · flagged ${e.when.toLowerCase()} after a push`)]),
+        show]);
+    });
+    const clear = h("button", "btn btn-ghost btn-sm", "Dismiss all");
+    clear.type = "button";
+    clear.addEventListener("click", () => seen([]));
+    flagged.replaceChildren(
+      h("div", "flagged-head", [h("span", "flagged-dot"), h("strong", null, "Flagged after your latest pushes"), h("span", "spacer"), clear]),
+      h("ul", "flagged-list", rows));
+    flagged.hidden = false;
+  }
+
   loadSummary();
   loadRepos();
+  loadEvents();
+  setInterval(() => { if (!document.hidden) loadEvents(); }, 30000);
 
   // New pushes are read in the background; refresh the numbers every minute while the page is open.
   setInterval(() => {

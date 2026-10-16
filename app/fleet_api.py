@@ -170,6 +170,22 @@ def major(source: Source = "all", owners: str = Query("", max_length=4000), min_
     return store.major(ws, score, page=page, owners=_owners(owners))
 
 
+class SeenIn(BaseModel):
+    ids: list[int] = Field(default_factory=list, max_length=50)
+
+
+@router.get("/events")
+def events(user: dict = Depends(require_user)):
+    """Problems a push (or another scan) newly flagged in the person's repositories, not yet seen."""
+    return {"events": store.unseen_events(user["login"])}
+
+
+@router.post("/events/seen")
+def events_seen(body: SeenIn, user: dict = Depends(require_user)):
+    store.mark_events_seen(user["login"], body.ids or None)
+    return {"ok": True}
+
+
 @router.get("/settings")
 def get_settings(user: dict = Depends(require_user)):
     return store.get_settings(user["login"])
@@ -310,7 +326,7 @@ def push_brief(repo_id: int, payload: PushBriefIn | None = None, user: dict = De
             "url": f"{r['html_url']}/blob/{branch}/{briefdoc.PATH}" if r.get("html_url") else commit.get("url", "")}
 
 
-FIX_ALL_AGENT = 3  # problems one agent run takes on (the riskiest first)
+FIX_ALL_AGENT = 4  # problems one agent run takes on (the riskiest first), in parallel
 
 
 class CommitAllIn(BaseModel):

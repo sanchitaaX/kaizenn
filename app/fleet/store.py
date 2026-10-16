@@ -92,6 +92,19 @@ CREATE TABLE IF NOT EXISTS fleet_sync (
     started_at   TEXT NOT NULL,
     finished_at  TEXT
 );
+-- Problems a scan of an already known repository newly flagged (usually right after a push), until seen.
+CREATE TABLE IF NOT EXISTS fleet_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    login       TEXT NOT NULL,
+    repo_id     INTEGER NOT NULL,
+    full_name   TEXT NOT NULL,
+    count       INTEGER NOT NULL,
+    worst       TEXT NOT NULL DEFAULT '',
+    titles      TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    seen        INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS fleet_events_by_login ON fleet_events (login, seen);
 -- Per person: the risk score from which a repository counts as "major", and the push watcher.
 CREATE TABLE IF NOT EXISTS fleet_settings (
     login            TEXT PRIMARY KEY,
@@ -292,6 +305,7 @@ def _vuln_dict(r: sqlite3.Row) -> dict:
     d = dict(r)
     d["first_seen_label"] = db.humanize(d["first_seen_at"])
     d["age_days"] = max(0, (db.now() - db.parse_iso(d["first_seen_at"])).days)
+    d["is_new"] = d["status"] == "open" and d["source"] != "demo" and db.now() - db.parse_iso(d["first_seen_at"]) < timedelta(days=1)
     return d
 
 
@@ -616,11 +630,14 @@ def decide_fix(fix_id: int, status: str, vuln_status: str | None, **fields) -> d
 # --------------------------------------------------------------------------- real GitHub repositories
 
 
-def save_github_repo(login: str, repo: dict, alerts: list[dict] | None, scan_status: str) -> int:
-    """Store one real repository and replace its code scanning findings. alerts=None keeps nothing."""
+def save_github_repo(login: str, repo: dict, alerts: list[dict] | None, scan_status: str, from_push: bool = False) -> int:
+    """Store one real repository and replace its code scanning findings. alerts=None keeps nothing.
+    from_push: read because of a push, so even a repository seen for the first time gets its problems flagged."""
     ws = f"gh:{login}"
     now = db.now()
     with _tx() as conn:
+        known = conn.execute("SELECT id FROM fleet_repos WHERE workspace = ? AND full_name = ? AND last_scan_at IS NOT NULL "
+                             "AND scan_status = 'scanned'", (ws, repo["full_name"])).fetchone() is not None
         conn.execute(
             """INSERT INTO fleet_repos (workspace, full_name, team, language, public, html_url, default_branch,
                    last_scan_at, scan_status, pushed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -641,22 +658,54 @@ def save_github_repo(login: str, repo: dict, alerts: list[dict] | None, scan_sta
                                   "AND status = 'pr_open'", (repo_id,)).fetchall():
                 if (r["alert_number"] not in now_nums) if r["alert_number"] is not None else                         ((r["file"], r["line"], r["type"]) not in now_at):
                     conn.execute("UPDATE fleet_vulns SET status = 'fixed', fixed_at = ? WHERE id = ?", (db.iso(now), r["id"]))
+        # What was already known, so a problem found again keeps the day it was first seen, and only the
+        # problems this scan adds count as newly flagged.
+        before = conn.execute("SELECT alert_number, file, line, type, first_seen_at FROM fleet_vulns WHERE repo_id = ?",
+                              (repo_id,)).fetchall()
+        seen_at = {(r["alert_number"] if r["alert_number"] is not None else (r["file"], r["line"], r["type"])): r["first_seen_at"]
+                   for r in before}
         # Keep findings that already have a pull request or a fix; replace the rest with what GitHub says now.
         conn.execute("DELETE FROM fleet_vulns WHERE repo_id = ? AND status = 'open' AND id NOT IN "
                      "(SELECT vuln_id FROM fleet_fixes)", (repo_id,))
         rows = conn.execute("SELECT alert_number, file, line, type FROM fleet_vulns WHERE repo_id = ?", (repo_id,)).fetchall()
         kept = {r["alert_number"] for r in rows if r["alert_number"] is not None}
         kept_at = {(r["file"], r["line"], r["type"]) for r in rows}  # KAIZEN's own findings have no alert number
+        key = lambda a: a["alert_number"] if a["alert_number"] is not None else (a["file"], a["line"], a["type"])
+        adding = [a for a in (alerts or [])
+                  if (a["alert_number"] not in kept if a["alert_number"] is not None
+                      else (a["file"], a["line"], a["type"]) not in kept_at)]
         conn.executemany(
             """INSERT INTO fleet_vulns (repo_id, type, title, severity, cwe, file, line, description, source,
                    alert_number, alert_url, status, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)""",
             [(repo_id, a["type"], a["title"], a["severity"], a["cwe"], a["file"], a["line"], a["description"],
-              a.get("source") or "codeql", a["alert_number"], a["alert_url"], a["first_seen_at"] or db.iso(now))
-             for a in (alerts or [])
-             if (a["alert_number"] not in kept if a["alert_number"] is not None
-                 else (a["file"], a["line"], a["type"]) not in kept_at)])
+              a.get("source") or "codeql", a["alert_number"], a["alert_url"],
+              seen_at.get(key(a)) or a["first_seen_at"] or db.iso(now)) for a in adding])
+        fresh = [a for a in adding if key(a) not in seen_at]
+        if (known or from_push) and fresh:  # flag it; the first import of someone's repositories is not news
+            worst = min(fresh, key=lambda a: risk.SEVERITIES.index(a["severity"]) if a["severity"] in risk.SEVERITIES else 9)
+            conn.execute("INSERT INTO fleet_events (login, repo_id, full_name, count, worst, titles, created_at) "
+                         "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                         (login, repo_id, repo["full_name"], len(fresh), worst["severity"],
+                          ", ".join(dict.fromkeys(a["title"] for a in fresh))[:300], db.iso(now)))
         _recompute(conn, repo_id, now)
     return repo_id
+
+
+def unseen_events(login: str) -> list[dict]:
+    """Newly flagged problems the person has not seen yet, newest first."""
+    with _tx() as conn:
+        rows = conn.execute("SELECT * FROM fleet_events WHERE login = ? AND seen = 0 ORDER BY id DESC LIMIT 20",
+                            (login,)).fetchall()
+    return [dict(r) | {"when": db.humanize(r["created_at"])} for r in rows]
+
+
+def mark_events_seen(login: str, ids: list[int] | None = None) -> None:
+    with _tx() as conn:
+        if ids:
+            conn.execute(f"UPDATE fleet_events SET seen = 1 WHERE login = ? AND id IN ({','.join('?' * len(ids))})",
+                         (login, *ids))
+        else:
+            conn.execute("UPDATE fleet_events SET seen = 1 WHERE login = ?", (login,))
 
 
 def set_sync(login: str, **fields) -> dict:

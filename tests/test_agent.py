@@ -601,3 +601,26 @@ def test_a_step_still_running_when_the_run_ends_is_closed(monkeypatch):
     run = fast_run(monkeypatch, FastScript(not_exploitable={"shop/db.py", "shop/files.py", "shop/tools.py"}))
     assert run["verdict"] == "none_found"
     assert all(s["status"] != "running" for s in run["state"]["steps"])
+
+
+def test_a_python_fix_indented_wrongly_is_lined_up_with_the_code_it_replaces(tmp_path):
+    from app.agent import patcher, workspace
+    src = "def label(title):\n    cmd = 'x ' + title\n    out = run(cmd, shell=True)\n    return out\n"
+    (tmp_path / "printer.py").write_text(src)
+    ws = workspace.from_folder(str(tmp_path), repo="me/lib")
+    # The model dropped the indent of the first line and wrote the rest at the left margin.
+    edits = [{"file": "printer.py", "find": "cmd = 'x ' + title\n    out = run(cmd, shell=True)",
+              "replace": "cmd = ['x', title]\nout = run(cmd)"}]
+    assert patcher.apply(ws, edits) == []
+    assert ws.read("printer.py") == "def label(title):\n    cmd = ['x', title]\n    out = run(cmd)\n    return out\n"
+
+
+def test_an_exploit_test_without_a_test_function_is_wrapped_in_one():
+    from app.agent import sectest
+    loose = "import os, sys\nsys.path.insert(0, '.')\nfrom library.printer import shelf_label\n\nout = shelf_label('a & echo X')\nassert 'X' not in out\n"
+    wrapped = sectest.as_test(loose, "test_securefix_printer.py")
+    compile(wrapped, "t.py", "exec")
+    assert "def test_exploit_is_blocked():\n    out = shelf_label('a & echo X')" in wrapped
+    assert wrapped.startswith("import os, sys\nsys.path.insert(0, '.')\nfrom library.printer import shelf_label")
+    ok = "def test_x():\n    assert True\n"
+    assert sectest.as_test(ok, "test_a.py") == ok and sectest.as_test(loose, "x.test.js") == loose

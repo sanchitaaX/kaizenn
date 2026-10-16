@@ -7,7 +7,9 @@ sent back on the next attempt.
 
 from __future__ import annotations
 
+import ast
 import difflib
+import textwrap
 
 from app.agent import model
 from app.agent.workspace import Workspace, is_protected
@@ -87,8 +89,50 @@ def apply(ws: Workspace, edits: list[dict]) -> list[str]:
         if find == replace:
             problems.append(f"an edit to {rel} changes nothing")
             continue
-        ws.write(rel, text.replace(find, replace, 1))
+        ws.write(rel, _fit(rel, text, find, replace))
     return problems
+
+
+def _parses(rel: str, text: str) -> bool:
+    try:
+        ast.parse(text)
+        return True
+    except (SyntaxError, ValueError):
+        return False
+
+
+def _fit(rel: str, text: str, find: str, replace: str) -> str:
+    """The file with the edit applied. For Python, a replacement the model indented differently from the code it
+    replaces (a common slip: the first line without its indent, or the whole block one level off) is lined up with
+    that code when only that makes the file parse again. Anything else is left exactly as the model wrote it."""
+    plain = text.replace(find, replace, 1)
+    if not rel.endswith(".py") or _parses(rel, plain) or not _parses(rel, text):
+        return plain
+    at = text.find(find)
+    start = text.rfind("\n", 0, at) + 1
+    lead = text[start:at]
+    if lead.strip():
+        return plain
+    nl = "\r\n" if "\r\n" in text else "\n"
+    first = next((l for l in find.splitlines() if l.strip()), "")
+    base = lead + first[:len(first) - len(first.lstrip())]
+    lines = replace.replace("\r\n", "\n").split("\n")
+    tries = []
+    body = textwrap.dedent("\n".join(lines)).split("\n")  # the whole block moved to the code's indent
+    tries.append([base + l if l.strip() else l for l in body])
+    if len(lines) > 1 and lines[0] == lines[0].lstrip():  # only the first line lost its indent
+        rest = textwrap.dedent("\n".join(lines[1:])).split("\n")
+        tries.append([base + lines[0]] + [base + l if l.strip() else l for l in rest])
+        if lines[0].rstrip().endswith(":"):  # a block opener: what follows sits one level deeper
+            step = "\t" if "\t" in base else "    "
+            tries.append([base + lines[0]] + [base + step + l if l.strip() else l for l in rest])
+    for t in tries:
+        fitted = nl.join(t)
+        fitted = fitted[len(lead):] if fitted.startswith(lead) else fitted  # the text keeps the indent before find
+        candidate = text.replace(find, fitted, 1)
+        if _parses(rel, candidate):
+            return candidate
+    return plain
 
 
 CLOSE = 0.85   # how alike a block must be to the text the model meant

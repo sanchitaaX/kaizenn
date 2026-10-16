@@ -535,8 +535,8 @@ def test_fix_all_on_a_github_repository_hands_its_problems_to_the_agent(octo, mo
     monkeypatch.setattr(controller, "start", lambda login, repo, token, **kw: started.update(repo=repo, **kw) or 41)
     out = client.post(f"/api/fleet/repos/{repo_id}/fix-all").json()
     assert out["mode"] == "agent" and out["run"] == 41 and started["repo"] == "octo/shop"
-    assert [t["title"] for t in started["target"]] == ["SQL injection", "SSRF", "Cross-site scripting"]  # riskiest 3
-    assert [h["title"] for h in out["handling"]] == ["SQL injection", "SSRF", "Cross-site scripting"]
+    assert [t["title"] for t in started["target"]] == ["SQL injection", "SSRF", "Cross-site scripting", "Weak hash"]  # riskiest 4
+    assert [h["title"] for h in out["handling"]] == ["SQL injection", "SSRF", "Cross-site scripting", "Weak hash"]
     assert client.post(f"/api/fleet/repos/{repo_id}/commit-all", json={"fix_ids": [1]}).status_code == 409
 
 
@@ -824,3 +824,29 @@ def test_agent_pull_request_closed_without_merging_puts_the_problems_back_to_ope
     scan["alerts"] = alerts[1:]
     watch.read_repo("octo", "gho_test", repo)
     assert status() == {"db.py": "fixed", "web.py": "open"}
+
+
+def test_a_push_that_adds_problems_is_flagged_once_and_old_problems_keep_their_date(octo):
+    client, repo_id = octo
+    repo = {"full_name": "octo/shop", "html_url": "https://github.com/octo/shop"}
+    mk = lambda f, sev="critical": {"type": "SQL_INJECTION", "title": "SQL injection", "severity": sev, "cwe": None, "file": f,
+                                     "line": 3, "description": "x", "alert_number": None, "alert_url": None,
+                                     "first_seen_at": None, "source": "securefix"}
+    store.save_github_repo("octo", repo, [mk("a.py")], "scanned")
+    assert [e["count"] for e in client.get("/api/fleet/events").json()["events"]] == [1]  # known, was clean: flagged
+    client.post("/api/fleet/events/seen", json={"ids": []})
+    first = {v["file"]: v["first_seen_at"] for v in client.get(f"/api/fleet/repos/{repo_id}").json()["vulns"]}
+    store.save_github_repo("octo", repo, [mk("a.py"), mk("b.py", "high")], "scanned", from_push=True)
+    ev = client.get("/api/fleet/events").json()["events"]
+    assert [(e["full_name"], e["count"], e["worst"]) for e in ev] == [("octo/shop", 1, "high")]
+    vulns = {v["file"]: v for v in client.get(f"/api/fleet/repos/{repo_id}").json()["vulns"]}
+    assert vulns["a.py"]["first_seen_at"] == first["a.py"] and vulns["b.py"]["is_new"] is True
+    store.save_github_repo("octo", repo, [mk("a.py"), mk("b.py", "high")], "scanned", from_push=True)
+    assert len(client.get("/api/fleet/events").json()["events"]) == 1  # nothing new the second time
+    client.post("/api/fleet/events/seen", json={"ids": [ev[0]["id"]]})
+    assert client.get("/api/fleet/events").json()["events"] == []
+    # A repository the person had never scanned: the first import is quiet, but one found through a push is flagged.
+    store.save_github_repo("octo", {"full_name": "octo/new", "html_url": "x"}, [mk("c.py")], "scanned")
+    assert client.get("/api/fleet/events").json()["events"] == []
+    store.save_github_repo("octo", {"full_name": "octo/pushed", "html_url": "x"}, [mk("d.py")], "scanned", from_push=True)
+    assert [e["full_name"] for e in client.get("/api/fleet/events").json()["events"]] == ["octo/pushed"]

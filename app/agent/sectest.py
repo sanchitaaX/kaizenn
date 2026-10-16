@@ -8,6 +8,7 @@ use Node's built-in test runner, so no package has to be installed.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from app.agent import model
@@ -57,6 +58,19 @@ def _examples(ws: Workspace, language: str) -> str:
     return "(the repository has no tests to copy conventions from)"
 
 
+def as_test(code: str, path: str) -> str:
+    """A Python exploit test written as loose statements (no test function) fails to load under pytest; put
+    those statements inside one test function so it runs. Anything that already has a test is left alone."""
+    if not path.endswith(".py") or re.search(r"^\s*(async\s+)?def\s+test_", code, re.M) or not code.strip():
+        return code
+    lines = code.replace("\r\n", "\n").split("\n")
+    head = []  # imports and the sys.path line stay at the top
+    while lines and (not lines[0].strip() or re.match(r"(import|from)\s|sys\.path\.", lines[0]) or lines[0].startswith("#")):
+        head.append(lines.pop(0))
+    body = [("    " + l if l.strip() else l) for l in lines]
+    return "\n".join(head + ["", "", "def test_exploit_is_blocked():"] + (body or ["    pass"])) + "\n"
+
+
 def module_style(ws: Workspace, file: str) -> tuple[str, str]:
     """('commonjs' | 'esm', extension) for the security test of a JS/TS file."""
     pkg = ws.package_json()
@@ -94,7 +108,7 @@ def write(ws: Workspace, finding: dict, cause: dict, block: str, log: model.Call
         _, ext = module_style(ws, finding["file"])
         if not name.endswith(f".test.{ext}"):
             name = f"securefix.exploit.test.{ext}"
-    return {"path": f"{DIR}/{name}", "code": str(data.get("code") or ""), "attack": model.short(data.get("attack"), 300),
+    return {"path": f"{DIR}/{name}", "code": as_test(str(data.get("code") or ""), name), "attack": model.short(data.get("attack"), 300),
             "explanation": model.short(data.get("explanation"), 400)}
 
 
